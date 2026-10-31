@@ -38,22 +38,62 @@ def _days(start: date, end: date):
         d += timedelta(days=1)
 
 
+def _get(data, *path):
+    """Sicher in verschachtelte Garmin-Antworten greifen."""
+    for key in path:
+        if isinstance(data, list):
+            data = data[0] if data else None
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+def _day_summary(values: dict) -> str:
+    """Kurzer, lesbarer Überblick über einen Tag fürs Protokoll."""
+    parts = []
+    hrv = _get(values.get("hrv"), "hrvSummary", "lastNightAvg")
+    if hrv:
+        status = _get(values.get("hrv"), "hrvSummary", "status") or ""
+        parts.append(f"HRV {hrv} ms {status}".strip())
+    rhr = _get(values.get("user_summary"), "restingHeartRate")
+    if rhr:
+        parts.append(f"Ruhepuls {rhr}")
+    sleep_s = _get(values.get("sleep"), "dailySleepDTO", "sleepTimeSeconds")
+    if sleep_s:
+        parts.append(f"Schlaf {int(sleep_s) // 3600}:{int(sleep_s) % 3600 // 60:02d} h")
+    bb = _get(values.get("user_summary"), "bodyBatteryHighestValue")
+    if bb:
+        parts.append(f"Body Battery max {bb}")
+    tr = _get(values.get("training_readiness"), "score")
+    if tr:
+        parts.append(f"Bereitschaft {tr}")
+    return ", ".join(parts) if parts else "keine Kennzahlen"
+
+
 def sync_daily(g: Garmin, store: Store, days_back: int) -> int:
     today = date.today()
     start = today - timedelta(days=days_back - 1)
     fetched = 0
-    for d in _days(start, today):
+    total = days_back
+    log.info("Tageswerte: prüfe %d Tage (%s bis %s)", total, start, today)
+    for i, d in enumerate(_days(start, today), 1):
         day = d.isoformat()
         recent = (today - d).days < REFRESH_RECENT_DAYS
+        values = {}
         for source, fn in DAILY_SOURCES.items():
             if not recent and store.has_daily(day, source):
                 continue
             try:
-                store.save_daily(day, source, fn(g, day))
+                values[source] = fn(g, day)
+                store.save_daily(day, source, values[source])
                 fetched += 1
             except Exception as e:  # einzelne Quelle darf den Rest nicht stoppen
                 log.warning("Tageswert %s/%s fehlgeschlagen: %s", day, source, e)
             time.sleep(PAUSE_S)
+        if values:
+            log.info("[%d/%d] %s: %s", i, total, day, _day_summary(values))
+    log.info("Tageswerte fertig: %d Abrufe gespeichert", fetched)
     return fetched
 
 
@@ -70,7 +110,9 @@ def _extract_fit(zip_bytes: bytes, target: Path) -> bool:
 def sync_activities(g: Garmin, store: Store, data_dir: Path, days_back: int) -> int:
     today = date.today()
     start = today - timedelta(days=days_back - 1)
+    log.info("Aktivitäten: suche von %s bis %s ...", start, today)
     acts = g.get_activities_by_date(start.isoformat(), today.isoformat())
+    log.info("Aktivitäten: %d gefunden", len(acts))
     new_fits = 0
     for act in acts:
         aid = int(act["activityId"])
@@ -83,6 +125,16 @@ def sync_activities(g: Garmin, store: Store, data_dir: Path, days_back: int) -> 
                 if _extract_fit(raw, data_dir / rel_path):
                     rel = str(rel_path)
                     new_fits += 1
+                    km = (act.get("distance") or 0) / 1000
+                    mins = (act.get("duration") or 0) / 60
+                    log.info(
+                        "  FIT gespeichert: %s | %s | %s | %.1f km | %d min",
+                        (act.get("startTimeLocal") or "")[:16],
+                        (act.get("activityType") or {}).get("typeKey", "?"),
+                        act.get("activityName") or "",
+                        km,
+                        mins,
+                    )
                 else:
                     log.warning("Aktivität %s: keine FIT-Datei im Download", aid)
                     rel = None
