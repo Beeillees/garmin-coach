@@ -1,1 +1,2 @@
 garminconnect==0.3.20
+fitdecode==0.11.0

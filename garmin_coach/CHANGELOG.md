@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+- **FIT-Auswertung**: Jede FIT-Datei wird automatisch ausgelesen, neue und bereits heruntergeladene.
+- Neue Tabellen in `garmin.db`:
+  - `fit_sessions`: Gesamtwerte pro Einheit (Distanz, Zeit, Tempo, Puls, Kadenz, Leistung, Laufdynamik, Atemfrequenz, Höhenmeter, Trainingseffekt, Trainingslast, RPE, Gefühl, Pulszonen, Geräte)
+  - `fit_laps`: alle Werte pro Runde, inklusive Rundentyp, Workout-Schritt und Zieltempo
+  - `fit_records`: Sekundenwerte (Puls, Tempo, Distanz, Höhe, Kadenz, Leistung, Bodenkontakt, vertikale Bewegung, Schrittlänge, Atmung, Temperatur)
+  - `fit_workout_steps`, `fit_lengths` (Schwimmbahnen), `fit_sets` (Sätze)
+  - `fit_errors`: Dateien, die sich nicht auswerten ließen
+- Berechnete Werte pro Einheit: Effizienz (m/min je Herzschlag), Pa:HR-Drift, Tempo-Schwankung, Zieltreffer bei Intervallen, Pulserholung in den ersten 60 s der Trabpausen.
+- Kadenz beim Laufen in Schritten pro Minute (FIT speichert pro Fuß).
+- Protokoll zeigt pro ausgewerteter Datei eine Zusammenfassung.
+
 ## 0.1.4
 - Changelog und Dokumentation werden jetzt im Add-on angezeigt.
 

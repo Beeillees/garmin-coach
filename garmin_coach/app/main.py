@@ -8,6 +8,7 @@ from pathlib import Path
 
 from garminconnect import Garmin
 
+import fit_store
 from db import Store
 from sync import run_sync
 
@@ -74,6 +75,10 @@ def main() -> None:
     opts = load_options()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     store = Store(DB_FILE)
+    fit_store.init(store)
+
+    # Bereits vorhandene, noch nicht ausgewertete FIT-Dateien zuerst abarbeiten
+    fit_store.process_pending(store, DATA_DIR)
 
     has_tokens = TOKEN_DIR.exists() and any(TOKEN_DIR.iterdir())
     if not has_tokens and not (opts.get("email") and opts.get("password")):
@@ -92,6 +97,7 @@ def main() -> None:
         log.info("Starte Backfill über %d Tage, das kann eine Weile dauern ...", backfill)
         run_sync(g, store, DATA_DIR, backfill)
         BACKFILL_MARKER.write_text(str(backfill))
+        fit_store.process_pending(store, DATA_DIR)
 
     interval = int(opts.get("sync_interval_hours") or 6) * 3600
     days_back = int(opts.get("days_back") or 30)
@@ -104,6 +110,10 @@ def main() -> None:
                 g = login(opts)  # Token abgelaufen o. Ä.: neu anmelden
             except Exception as e2:
                 log.error("Erneuter Login fehlgeschlagen: %s", e2)
+        try:
+            fit_store.process_pending(store, DATA_DIR)
+        except Exception as e:
+            log.error("FIT-Auswertung fehlgeschlagen: %s", e)
         time.sleep(interval)
 
 

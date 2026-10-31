@@ -40,8 +40,8 @@ in die Datei `/share/garmin-coach/mfa_code.txt` schreiben.
 ## Fahrplan
 
 1. ✅ Sammler: Tageswerte und FIT-Dateien lokal speichern
-2. Historie aus dem Garmin-Datenexport importieren
-3. FIT-Auswertung pro Lauf (Pace, HF-Zonen, Drift, Kadenz, Splits)
+2. ✅ FIT-Auswertung: Gesamtwerte, Runden, Sekundenwerte, Drift, Effizienz, Zieltreffer, Pulserholung
+3. Historie aus dem Garmin-Datenexport importieren
 4. MCP-Server für Claude
 5. Trainings in den Garmin-Kalender schreiben
 6. Täglicher Coach-Bericht

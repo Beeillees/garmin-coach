@@ -15,6 +15,37 @@ Speichert deine Garmin-Daten lokal auf deinem Home Assistant:
 
 Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, wenn du "Share" mitsicherst.
 
+## Tabellen in `garmin.db`
+
+| Tabelle | Inhalt |
+|---|---|
+| `daily_raw` | Tageswerte von Garmin als Rohdaten (HRV, Schlaf, Ruhepuls, Body Battery, Stress, Trainingsbereitschaft, Trainingsstatus, VO2max) |
+| `activities` | Aktivitätsliste von Garmin mit Pfad zur FIT-Datei |
+| `fit_sessions` | Gesamtwerte pro Einheit aus der FIT-Datei plus berechnete Werte |
+| `fit_laps` | Werte pro Runde, inklusive Rundentyp, Workout-Schritt und Zieltempo |
+| `fit_records` | Sekundenwerte: Puls, Tempo, Distanz, Höhe, Kadenz, Leistung, Laufdynamik, Atmung, Temperatur |
+| `fit_workout_steps` | Schritte eines geplanten Trainings mit Zielvorgaben |
+| `fit_lengths` | Schwimmbahnen |
+| `fit_sets` | Sätze (Kraft, HIIT) |
+| `fit_errors` | FIT-Dateien, die sich nicht auswerten ließen |
+| `sync_log` | Protokoll der Sync-Läufe |
+
+### Einheiten
+
+- Tempo in m/s, Distanz in m, Zeiten in s
+- Kadenz beim Laufen in Schritten pro Minute, beim Radfahren in Umdrehungen pro Minute
+- Schrittlänge und vertikale Bewegung in mm, Bodenkontaktzeit in ms
+
+### Berechnete Werte (`fit_sessions`)
+
+| Spalte | Bedeutung |
+|---|---|
+| `efficiency` | Meter pro Minute je Herzschlag, nur Bewegungszeit |
+| `decoupling_pct` | Pa:HR-Drift: Effizienzverlust von der ersten zur zweiten Hälfte. Unter ~5 % gilt als gute aerobe Ausdauer. Nur bei gleichmäßigen Läufen aussagekräftig. |
+| `speed_cv_pct` | Tempo-Schwankung. Hoch bei Intervallen, dann ist die Drift nicht aussagekräftig. |
+| `target_hit_pct`, `target_laps` | Anteil der Belastungsrunden im Zieltempo-Bereich eines geplanten Trainings |
+| `hr_recovery_60s` | Mittlerer Pulsabfall in den ersten 60 s der Trabpausen |
+
 ## Einstellungen
 
 | Option | Bedeutung |
