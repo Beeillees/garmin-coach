@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.0
+Trainingstagebuch und Rückblicke: Was Garmin nicht misst, kommt jetzt mit in die Datenbank, und der
+Coach kann Wochen und Monate zusammenfassen.
+
+- **Neue Tabelle `diary` (Trainingstagebuch)** mit festen Feldern: Beine (1 frisch … 5 sehr schwer),
+  Energie (1 leer … 5 top), Infektzeichen, Schmerz mit Körperstelle und Stärke (0–10),
+  Kohlenhydrate und Flüssigkeit pro Stunde, Freitext; optional mit Bezug auf eine Einheit.
+  Eingabe einfach im Chat, Claude trägt ein.
+  - Werkzeuge `log_diary` (anlegen oder mit `entry_id` ergänzen), `list_diary`, `delete_diary`.
+  - Einträge erscheinen in `daily_metrics` (Feld `tagebuch`) und in `get_activity`.
+- **Wochen- und Monatsberichte:** `save_report` kennt jetzt `woche` und `monat` mit Zeitraum
+  (`period`, z. B. `2026-W44` bzw. `2026-10`), pro Zeitraum nur ein Bericht, Kurzfassung bis
+  12.000 Zeichen. Neue Spalte `coach_reports.period` (wird beim Start automatisch ergänzt).
+- **Neues Werkzeug `review_data`:** alles für einen Rückblick in einem Abruf – Umfang je Sportart
+  mit Vorperiode, Laufen, Schlüsseleinheiten, Erholung (Bereitschaft, HRV gegen Basis, Ruhepuls,
+  Schlaf, Last, VO2max) mit Vorperiode, Tagebuch, Notizen, Berichte des Zeitraums, letzter Rückblick,
+  Plan und kommende Wettkämpfe. Woche mit Tagesübersicht, Monat mit Übersicht je Woche.
+- `pending_reports` zeigt zusätzlich, ob der fällige Wochen- und Monatsrückblick fehlt.
+- `list_reports` gibt den Zeitraum mit aus.
+
 ## 0.5.1
 - `garmin_profile`: Verläufe kommen verdichtet statt als Rohdaten (der Laktatschwellen-Verlauf war
   über 170.000 Zeichen groß). Laktatschwelle nur an Änderungen, mit Pace; Wettkampfprognosen ein

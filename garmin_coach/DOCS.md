@@ -32,7 +32,8 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `notes` | Notizen zu Krankheit, Verletzung, Reise, Stress |
 | `coach_plan` | Trainingsplan als Text, jede Änderung eine neue Version |
 | `races` | Wettkämpfe mit Datum, Distanz, Priorität, Status |
-| `coach_reports` | Berichte des Coaches (Morgen, Training, Abend) mit Kurzfassung |
+| `coach_reports` | Berichte des Coaches (Morgen, Training, Abend, Woche, Monat) mit Kurzfassung und Zeitraum |
+| `diary` | Trainingstagebuch: Beine, Energie, Infektzeichen, Schmerzen, Verpflegung, Freitext |
 | `mcp_log` | Protokoll der Abfragen von Claude (90 Tage) |
 | `sync_log` | Protokoll der Sync-Läufe (`kind`: voll oder schnell) |
 
@@ -85,9 +86,11 @@ ist normal.
 | `weekly_summary` | Wochenumfänge pro Sportart-Gruppe mit Wochensumme und Notizen |
 | `garmin_profile` | Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, geplante Trainings |
 | `add_note`, `list_notes`, `delete_note` | Notizen anlegen, anzeigen, löschen |
+| `log_diary`, `list_diary`, `delete_diary` | Trainingstagebuch: eintragen bzw. ergänzen, anzeigen, löschen |
 | `get_plan`, `set_plan` | Trainingsplan lesen und speichern, mit Wochentag und Wettkämpfen |
 | `set_race`, `delete_race` | Wettkämpfe anlegen, ändern, löschen |
-| `pending_reports`, `save_report`, `list_reports` | Welche Einheiten noch keinen Bericht haben; Berichte vermerken und anzeigen |
+| `pending_reports`, `save_report`, `list_reports` | Welche Einheiten und Rückblicke noch keinen Bericht haben; Berichte (auch Woche/Monat) vermerken und anzeigen |
+| `review_data` | Alle Daten für einen Wochen- oder Monatsrückblick in einem Abruf |
 | `sync_now` | Sofort-Sync (`schnell` oder `voll`) und auf das Ergebnis warten |
 | `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |
 

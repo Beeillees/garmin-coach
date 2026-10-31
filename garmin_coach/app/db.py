@@ -98,10 +98,10 @@ CREATE TABLE IF NOT EXISTS races (
 );
 CREATE INDEX IF NOT EXISTS idx_races_day ON races(day);
 
--- Berichte des Coaches (Morgen, Training, Abend); verhindert doppelte Auswertungen.
+-- Berichte des Coaches (Morgen, Training, Abend, Woche, Monat); verhindert doppelte Auswertungen.
 CREATE TABLE IF NOT EXISTS coach_reports (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind        TEXT NOT NULL,          -- morgen, training, abend
+    kind        TEXT NOT NULL,          -- morgen, training, abend, woche, monat
     day         TEXT NOT NULL,
     activity_id INTEGER,
     created_at  TEXT NOT NULL,
@@ -110,12 +110,37 @@ CREATE TABLE IF NOT EXISTS coach_reports (
 CREATE INDEX IF NOT EXISTS idx_coach_reports_day ON coach_reports(day, kind);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_reports_activity ON coach_reports(activity_id)
     WHERE activity_id IS NOT NULL;
+
+-- Trainingstagebuch: was Garmin nicht misst (Beine, Energie, Infektzeichen, Schmerzen, Verpflegung).
+CREATE TABLE IF NOT EXISTS diary (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    day             TEXT NOT NULL,          -- YYYY-MM-DD
+    activity_id     INTEGER,                -- optional: Bezug auf eine Einheit
+    beine           INTEGER,                -- 1 frisch ... 5 sehr schwer
+    energie         INTEGER,                -- 1 leer ... 5 top
+    infekt          TEXT,                   -- z. B. 'Halskratzen', 'Schnupfen'
+    schmerz         TEXT,                   -- Körperstelle und Art, z. B. 'Gesäß links, ziehend'
+    schmerz_staerke INTEGER,                -- 0 ... 10
+    kh_g_pro_h      REAL,                   -- Kohlenhydrate pro Stunde (lange Einheiten)
+    fluessigkeit_ml_pro_h REAL,
+    text            TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_diary_day ON diary(day);
 """
 
 # Spalten, die nach der ersten Version dazugekommen sind: (Tabelle, Spalte, Definition)
 MIGRATIONS = [
     ("sync_log", "kind", "TEXT DEFAULT 'voll'"),
+    ("coach_reports", "period", "TEXT"),       # 0.6: '2026-W44' bzw. '2026-10' für Wochen-/Monatsberichte
 ]
+
+# Indizes, die erst nach den Migrationen angelegt werden können
+POST_MIGRATION = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_reports_period ON coach_reports(kind, period)
+    WHERE period IS NOT NULL;
+"""
 
 
 def now_iso() -> str:
@@ -132,6 +157,7 @@ class Store:
             cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+        self.conn.executescript(POST_MIGRATION)
         self.conn.commit()
 
     # --- Tageswerte ---------------------------------------------------------

@@ -1,6 +1,6 @@
 """MCP-Server: macht garmin.db für Claude zugänglich.
 
-Schreibend sind nur Notizen, Trainingsplan, Wettkämpfe und Coach-Berichte; Garmin selbst wird
+Schreibend sind nur Notizen, Tagebuch, Trainingsplan, Wettkämpfe und Coach-Berichte; Garmin selbst wird
 nie verändert. Jeder Werkzeugaufruf wird mit Dauer,
 Ergebnisgröße und Status protokolliert, im Add-on-Protokoll und in der Tabelle mcp_log.
 """
@@ -25,7 +25,7 @@ log = logging.getLogger("garmin_coach.mcp")
 
 PORT = 8099
 PATH = "/mcp"
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -57,6 +57,11 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
 - Tageswerte stammen aus Garmin Connect, Einheiten aus den Original-FIT-Dateien.
 - Coaching: get_plan liefert Brunos Trainingsplan und Wettkämpfe. Neue Einheiten ohne Bericht zeigt
   pending_reports; nach einem Bericht save_report aufrufen, damit nichts doppelt ausgewertet wird.
+- Tagebuch (log_diary): was Garmin nicht misst – Beine (1 frisch … 5 sehr schwer), Energie
+  (1 leer … 5 top), Infektzeichen, Schmerz mit Körperstelle (0–10), Verpflegung g KH/h, Freitext.
+  Eintragen, wenn Bruno so etwas im Chat erzählt; erscheint in daily_metrics und get_activity.
+- Rückblicke: review_data(kind=woche|monat) liefert alles für einen Wochen-/Monatsrückblick in
+  einem Abruf; danach save_report(kind=woche|monat, period=…). pending_reports zeigt, ob sie fehlen.
 - Aktuelle Daten: sync_now (schnell = nur neue Aktivitäten, voll = alles). Sonst läuft der Sync
   zu festen Zeiten plus Schnellprüfung tagsüber.
 """
@@ -108,7 +113,7 @@ def _result_size(result) -> tuple[int | None, bool]:
     if isinstance(result, list):
         return len(result), False
     if isinstance(result, dict):
-        for key in ("zeilen", "werte", "wochen", "eintraege", "quellen"):
+        for key in ("zeilen", "werte", "wochen", "eintraege", "quellen", "tage"):
             if isinstance(result.get(key), list):
                 return len(result[key]), bool(result.get("abgeschnitten"))
         return 1, bool(result.get("abgeschnitten"))
@@ -272,6 +277,39 @@ def delete_note(note_id: int) -> dict:
     return _call("delete_note", queries.delete_note, note_id=note_id)
 
 
+# --- Tagebuch -----------------------------------------------------------------
+
+@server.tool(annotations=WRITE)
+def log_diary(day: str | None = None, activity_id: int | None = None, beine: int | None = None,
+              energie: int | None = None, infekt: str | None = None, schmerz: str | None = None,
+              schmerz_staerke: int | None = None, kh_g_pro_h: float | None = None,
+              fluessigkeit_ml_pro_h: float | None = None, text: str | None = None,
+              entry_id: int | None = None) -> dict:
+    """Tagebucheintrag zu dem, was Garmin nicht misst. Eintragen, wenn Bruno es im Chat erzählt.
+
+    day YYYY-MM-DD (Standard heute; bei activity_id der Tag der Einheit). Alle Felder optional:
+    beine 1 (frisch) … 5 (sehr schwer); energie 1 (leer) … 5 (top); infekt: Symptome als Text;
+    schmerz: Körperstelle und Art, schmerz_staerke 0–10; kh_g_pro_h und fluessigkeit_ml_pro_h
+    bei langen Einheiten; text: alles Weitere in Brunos Worten. Mehrere Einträge pro Tag möglich.
+    Mit entry_id wird ein bestehender Eintrag ergänzt bzw. geändert (nur angegebene Felder)."""
+    return _call("log_diary", queries.log_diary, day=day, activity_id=activity_id, beine=beine,
+                 energie=energie, infekt=infekt, schmerz=schmerz, schmerz_staerke=schmerz_staerke,
+                 kh_g_pro_h=kh_g_pro_h, fluessigkeit_ml_pro_h=fluessigkeit_ml_pro_h, text=text,
+                 entry_id=entry_id)
+
+
+@server.tool(annotations=READ_ONLY)
+def list_diary(start_date: str | None = None, end_date: str | None = None) -> list | dict:
+    """Tagebucheinträge eines Zeitraums (Standard: letzte 28 Tage)."""
+    return _call("list_diary", queries.list_diary, start_date=start_date, end_date=end_date)
+
+
+@server.tool(annotations=DELETE)
+def delete_diary(entry_id: int) -> dict:
+    """Tagebucheintrag löschen (z. B. Fehleintrag). Nur auf Brunos Wunsch."""
+    return _call("delete_diary", queries.delete_diary, entry_id=entry_id)
+
+
 # --- Coaching -----------------------------------------------------------------
 
 @server.tool(annotations=READ_ONLY)
@@ -308,17 +346,34 @@ def delete_race(race_id: int) -> dict:
 @server.tool(annotations=READ_ONLY)
 def pending_reports(days: int = 2) -> dict:
     """Was ist noch nicht besprochen: Einheiten der letzten `days` Tage ohne Trainingsbericht
-    (Atemübungen ausgenommen), ob Morgen- und Abendbericht für heute fehlen, letzter Sync."""
+    (Atemübungen ausgenommen), ob Morgen- und Abendbericht für heute fehlen, ob der Wochen- und
+    Monatsrückblick für den fälligen Zeitraum fehlt, letzter Sync."""
     return _call("pending_reports", queries.pending_reports, days=days)
 
 
 @server.tool(annotations=WRITE)
-def save_report(kind: str, summary: str, activity_id: int | None = None, day: str | None = None) -> dict:
-    """Bericht als erledigt vermerken. kind: morgen, training (braucht activity_id) oder abend.
-    summary: 2–4 Sätze Kern des Berichts (Empfehlung, Bewertung), damit spätere Berichte darauf
-    aufbauen können. Pro Aktivität nur ein Trainingsbericht."""
+def save_report(kind: str, summary: str, activity_id: int | None = None, day: str | None = None,
+                period: str | None = None) -> dict:
+    """Bericht vermerken. kind: morgen, training (braucht activity_id), abend, woche oder monat.
+    summary: bei morgen/training/abend 2–4 Sätze Kern des Berichts (Empfehlung, Bewertung).
+    Bei woche/monat die wichtigsten Erkenntnisse, Zahlen und Vorhaben ausführlicher (bis ca. 15
+    Sätze), damit der nächste Rückblick darauf aufbaut. period: '2026-W44' bzw. '2026-10'
+    (Standard: der fällige Zeitraum wie in pending_reports). Pro Aktivität bzw. Zeitraum nur einmal."""
     return _call("save_report", queries.save_report, kind=kind, summary=summary, activity_id=activity_id,
-                 day=day)
+                 day=day, period=period)
+
+
+@server.tool(annotations=READ_ONLY)
+def review_data(kind: str = "woche", period: str | None = None) -> dict:
+    """Alles für einen Rückblick in einem Abruf. kind: woche oder monat; period: '2026-W44' bzw.
+    '2026-10' (Standard: am Sonntag die laufende Woche, sonst die letzte; Monat ab dem 28. der
+    laufende, sonst der Vormonat).
+    Enthält: Umfang je Sportart mit Vorperiode, Laufen (km, längster Lauf, Höhenmeter),
+    Schlüsseleinheiten (hart/lang mit Pace, Puls, Last, RPE), Erholung (Bereitschaft, HRV gegen
+    Basis, Ruhepuls, Schlaf, Last, VO2max) mit Vorperiode, Tagebuch, Notizen, Berichte des
+    Zeitraums, letzter Rückblick derselben Art, Trainingsplan und kommende Wettkämpfe.
+    Woche: Tagesübersicht; Monat: Übersicht je Woche."""
+    return _call("review_data", queries.review_data, kind=kind, period=period)
 
 
 @server.tool(annotations=READ_ONLY)

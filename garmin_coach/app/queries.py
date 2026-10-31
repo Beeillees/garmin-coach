@@ -179,6 +179,116 @@ def delete_note(note_id: int, db_file=None) -> dict:
     return {"geloescht": int(note_id)}
 
 
+# --- Tagebuch -----------------------------------------------------------------
+
+DIARY_FIELDS = ("beine", "energie", "infekt", "schmerz", "schmerz_staerke", "kh_g_pro_h",
+                "fluessigkeit_ml_pro_h", "text")
+
+
+def _diary_between(c, start: str, end: str) -> list:
+    if not _table_exists(c, "diary"):
+        return []
+    return [dict(r) for r in c.execute(
+        "SELECT * FROM diary WHERE day BETWEEN ? AND ? ORDER BY day, id", (start, end))]
+
+
+def _diary_out(d: dict) -> dict:
+    return _clean({"id": d["id"], "tag": d["day"], "activity_id": d.get("activity_id"),
+                   **{k: d.get(k) for k in DIARY_FIELDS}})
+
+
+def _diary_short(d: dict) -> str:
+    """Einzeilige Fassung für Tageswerte und Einheiten."""
+    parts = []
+    if d.get("beine") is not None:
+        parts.append(f"Beine {d['beine']}/5")
+    if d.get("energie") is not None:
+        parts.append(f"Energie {d['energie']}/5")
+    if d.get("infekt"):
+        parts.append(f"Infekt: {d['infekt']}")
+    if d.get("schmerz"):
+        st = f" ({d['schmerz_staerke']}/10)" if d.get("schmerz_staerke") is not None else ""
+        parts.append(f"Schmerz: {d['schmerz']}{st}")
+    if d.get("kh_g_pro_h") is not None:
+        parts.append(f"{d['kh_g_pro_h']:g} g KH/h")
+    if d.get("fluessigkeit_ml_pro_h") is not None:
+        parts.append(f"{d['fluessigkeit_ml_pro_h']:g} ml/h")
+    if d.get("text"):
+        parts.append(d["text"])
+    return "; ".join(parts)
+
+
+def _check_range(name, v, lo, hi):
+    if v is None:
+        return None
+    v = int(v)
+    if not lo <= v <= hi:
+        raise ValueError(f"{name} muss zwischen {lo} und {hi} liegen")
+    return v
+
+
+def log_diary(day: str = None, activity_id: int = None, beine: int = None, energie: int = None,
+              infekt: str = None, schmerz: str = None, schmerz_staerke: int = None, kh_g_pro_h: float = None,
+              fluessigkeit_ml_pro_h: float = None, text: str = None, entry_id: int = None, db_file=None) -> dict:
+    vals = {
+        "beine": _check_range("beine", beine, 1, 5),
+        "energie": _check_range("energie", energie, 1, 5),
+        "infekt": (infekt or "").strip()[:500] or None,
+        "schmerz": (schmerz or "").strip()[:500] or None,
+        "schmerz_staerke": _check_range("schmerz_staerke", schmerz_staerke, 0, 10),
+        "kh_g_pro_h": None if kh_g_pro_h is None else float(kh_g_pro_h),
+        "fluessigkeit_ml_pro_h": None if fluessigkeit_ml_pro_h is None else float(fluessigkeit_ml_pro_h),
+        "text": (text or "").strip()[:4000] or None,
+    }
+    now = _now_utc()
+    with connect_rw(db_file) as c:
+        if activity_id:
+            row = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
+            if not row:
+                raise ValueError(f"Aktivität {activity_id} nicht gefunden")
+            if not day:
+                day = (row["start_local"] or "")[:10] or None
+        if entry_id:
+            old = c.execute("SELECT * FROM diary WHERE id=?", (int(entry_id),)).fetchone()
+            if not old:
+                raise ValueError(f"Tagebucheintrag {entry_id} nicht gefunden")
+            changes = {k: v for k, v in vals.items() if v is not None}
+            if day:
+                changes["day"] = date.fromisoformat(day[:10]).isoformat()
+            if activity_id:
+                changes["activity_id"] = int(activity_id)
+            if not changes:
+                raise ValueError("Keine Änderung angegeben")
+            sets = ", ".join(f"{k}=?" for k in changes)
+            c.execute(f"UPDATE diary SET {sets}, updated_at=? WHERE id=?", (*changes.values(), now, int(entry_id)))
+            rid = int(entry_id)
+        else:
+            if all(v is None for v in vals.values()):
+                raise ValueError("Leerer Eintrag: mindestens ein Feld angeben")
+            d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
+            rid = c.execute(
+                f"INSERT INTO diary(day, activity_id, {', '.join(vals)}, created_at, updated_at) "
+                f"VALUES(?, ?, {', '.join('?' * len(vals))}, ?, ?)",
+                (d, int(activity_id) if activity_id else None, *vals.values(), now, now)).lastrowid
+        row = dict(c.execute("SELECT * FROM diary WHERE id=?", (rid,)).fetchone())
+    return _diary_out(row)
+
+
+def list_diary(start_date=None, end_date=None, db_file=None) -> list:
+    end = end_date or date.today().isoformat()
+    start = start_date or (date.fromisoformat(end) - timedelta(days=27)).isoformat()
+    with connect(db_file) as c:
+        return [_diary_out(d) for d in _diary_between(c, start, end)]
+
+
+def delete_diary(entry_id: int, db_file=None) -> dict:
+    with connect_rw(db_file) as c:
+        n = c.execute("DELETE FROM diary WHERE id=?", (int(entry_id),)).rowcount
+    if not n:
+        raise ValueError(f"Tagebucheintrag {entry_id} nicht gefunden")
+    return {"geloescht": int(entry_id)}
+
+
 # --- Überblick ----------------------------------------------------------------
 
 def overview(db_file=None) -> dict:
@@ -411,6 +521,8 @@ def get_activity(activity_id: int, db_file=None) -> dict:
         sets = c.execute("SELECT * FROM fit_sets WHERE activity_id=? ORDER BY set_index", (activity_id,)).fetchall()
         err = c.execute("SELECT error FROM fit_errors WHERE activity_id=?", (activity_id,)).fetchone()
         notes = _notes_between(c, a["start_local"][:10], a["start_local"][:10]) if a and a["start_local"] else []
+        diary = [d for d in _diary_between(c, a["start_local"][:10], a["start_local"][:10])
+                 if d["activity_id"] in (None, activity_id)] if a and a["start_local"] else []
     if not a and not s:
         raise ValueError(f"Aktivität {activity_id} nicht gefunden")
     js = (_loads(a["data"]) if a else None) or {}
@@ -448,6 +560,8 @@ def get_activity(activity_id: int, db_file=None) -> dict:
         out["garmin"] = _garmin_summary(js, group)
     if notes:
         out["notizen"] = [_note_text(n) for n in notes]
+    if diary:
+        out["tagebuch"] = [_diary_short(d) for d in diary]
     out["runden"] = [{
         "nr": l["lap_index"] + 1, "typ": l["intensity"] or None, "ausloeser": l["lap_trigger"],
         "start_s": l["start_t"], "workout_schritt": l["wkt_step_index"],
@@ -740,6 +854,7 @@ def daily_metrics(start_date=None, end_date=None, db_file=None) -> list:
             "SELECT day, source, data FROM daily_raw WHERE day BETWEEN ? AND ? AND data IS NOT NULL ORDER BY day",
             (before, end)).fetchall()
         notes = _notes_between(c, start, end)
+        diary = _diary_between(c, start, end)
     by_day = {}
     for r in rows:
         by_day.setdefault(r["day"], {})[r["source"]] = _loads(r["data"])
@@ -757,6 +872,9 @@ def daily_metrics(start_date=None, end_date=None, db_file=None) -> list:
         day_notes = [_note_text(n) for n in notes if n["day_from"] <= day <= n["day_to"]]
         if day_notes:
             row["notizen"] = day_notes
+        day_diary = [_diary_short(d) for d in diary if d["day"] == day]
+        if day_diary:
+            row["tagebuch"] = day_diary
         out.append(_clean(row))
     return out[-400:]
 
@@ -929,7 +1047,8 @@ def garmin_profile(source: str = None, day: str = None, kompakt: bool = True, db
 # --- Trainingsplan, Wettkämpfe, Berichte ---------------------------------------
 
 RACE_STATUS = ("geplant", "abgesagt", "erledigt")
-REPORT_KINDS = ("morgen", "training", "abend")
+REPORT_KINDS = ("morgen", "training", "abend", "woche", "monat")
+PERIOD_KINDS = ("woche", "monat")
 WEEKDAYS = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
 
 
@@ -1005,6 +1124,48 @@ def delete_race(race_id: int, db_file=None) -> dict:
     return {"geloescht": int(race_id)}
 
 
+def _period_default(kind: str, today: date = None) -> str:
+    """Standard-Zeitraum: Woche = laufende ISO-Woche am Sonntag, sonst die letzte volle Woche;
+    Monat = laufender Monat ab dem 28., sonst der Vormonat."""
+    today = today or date.today()
+    if kind == "woche":
+        d = today if today.weekday() == 6 else today - timedelta(days=today.weekday() + 1)
+        y, w, _ = d.isocalendar()
+        return f"{y}-W{w:02d}"
+    if today.day >= 28:
+        return today.strftime("%Y-%m")
+    return (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+
+def _period_range(kind: str, period: str = None) -> tuple:
+    """(Periode, erster Tag, letzter Tag) für 'woche' ('2026-W44') oder 'monat' ('2026-10')."""
+    kind = (kind or "").strip().lower()
+    if kind not in PERIOD_KINDS:
+        raise ValueError("Art muss 'woche' oder 'monat' sein")
+    period = (period or _period_default(kind)).strip()
+    try:
+        if kind == "woche":
+            y, w = period.upper().split("-W")
+            start = date.fromisocalendar(int(y), int(w), 1)
+            end = start + timedelta(days=6)
+            period = f"{int(y)}-W{int(w):02d}"
+        else:
+            y, m = period.split("-")[:2]
+            start = date(int(y), int(m), 1)
+            end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            period = f"{int(y)}-{int(m):02d}"
+    except (ValueError, TypeError):
+        raise ValueError("Zeitraum als '2026-W44' (Woche) bzw. '2026-10' (Monat) angeben")
+    return period, start, end
+
+
+def _previous_period(kind: str, start: date) -> str:
+    if kind == "woche":
+        y, w, _ = (start - timedelta(days=7)).isocalendar()
+        return f"{y}-W{w:02d}"
+    return (start - timedelta(days=1)).strftime("%Y-%m")
+
+
 def pending_reports(days: int = 2, db_file=None) -> dict:
     """Einheiten der letzten Tage ohne Trainingsbericht, dazu ob Morgen-/Abendbericht heute fehlt."""
     today = date.today()
@@ -1016,8 +1177,13 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
             "LEFT JOIN fit_sessions s USING(activity_id) "
             "LEFT JOIN coach_reports r ON r.activity_id = a.activity_id "
             "WHERE a.start_local >= ? AND r.id IS NULL ORDER BY a.start_local", (start,)).fetchall()
-        done = {r[0] for r in c.execute("SELECT kind FROM coach_reports WHERE day=? AND activity_id IS NULL",
-                                        (today.isoformat(),))}
+        done = {r[0] for r in c.execute("SELECT kind FROM coach_reports WHERE day=? AND activity_id IS NULL "
+                                        "AND kind IN ('morgen', 'abend')", (today.isoformat(),))}
+        periods = {}
+        for kind in PERIOD_KINDS:
+            per = _period_default(kind, today)
+            periods[kind] = (per, c.execute("SELECT 1 FROM coach_reports WHERE kind=? AND period=?",
+                                            (kind, per)).fetchone() is not None)
         last_sync = c.execute("SELECT started_at, finished_at, status, message FROM sync_log "
                               "ORDER BY id DESC LIMIT 1").fetchone()
     offen = []
@@ -1032,19 +1198,29 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
         "einheiten_ohne_bericht": offen,
         "morgenbericht_fehlt": "morgen" not in done,
         "abendbericht_fehlt": "abend" not in done,
+        "wochenbericht": {"zeitraum": periods["woche"][0], "fehlt": not periods["woche"][1]},
+        "monatsbericht": {"zeitraum": periods["monat"][0], "fehlt": not periods["monat"][1]},
         "letzter_sync": dict(last_sync) if last_sync else None,
         "hinweis": "Einheiten mit ausgewertet=false haben noch keine FIT-Auswertung; ggf. sync_now abwarten.",
     }
 
 
-def save_report(kind: str, summary: str, activity_id: int = None, day: str = None, db_file=None) -> dict:
+def save_report(kind: str, summary: str, activity_id: int = None, day: str = None, period: str = None,
+                db_file=None) -> dict:
     kind = (kind or "").strip().lower()
     if kind not in REPORT_KINDS:
         raise ValueError(f"Art muss eine von {', '.join(REPORT_KINDS)} sein")
     if kind == "training" and not activity_id:
         raise ValueError("Trainingsbericht braucht activity_id")
     d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
+    per = None
+    if kind in PERIOD_KINDS:
+        per, _, _ = _period_range(kind, period)
+        activity_id = None
+    limit = 12000 if per else 4000
     with connect_rw(db_file) as c:
+        if per and c.execute("SELECT 1 FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone():
+            return {"hinweis": f"Für {per} gibt es schon einen {kind}-Bericht", "doppelt": True}
         if activity_id:
             row = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
             if not row:
@@ -1052,15 +1228,16 @@ def save_report(kind: str, summary: str, activity_id: int = None, day: str = Non
             d = (row["start_local"] or d)[:10]
             if c.execute("SELECT 1 FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone():
                 return {"hinweis": f"Für Aktivität {activity_id} gibt es schon einen Bericht", "doppelt": True}
-        rid = c.execute("INSERT INTO coach_reports(kind, day, activity_id, created_at, summary) VALUES(?,?,?,?,?)",
+        rid = c.execute("INSERT INTO coach_reports(kind, day, activity_id, created_at, summary, period) "
+                        "VALUES(?,?,?,?,?,?)",
                         (kind, d, int(activity_id) if activity_id else None, _now_utc(),
-                         (summary or "").strip()[:4000])).lastrowid
-    return {"id": rid, "art": kind, "tag": d, "activity_id": activity_id}
+                         (summary or "").strip()[:limit], per)).lastrowid
+    return _clean({"id": rid, "art": kind, "tag": d, "activity_id": activity_id, "zeitraum": per})
 
 
 def list_reports(days: int = 14, kind: str = None, db_file=None) -> list:
     start = (date.today() - timedelta(days=max(1, int(days)) - 1)).isoformat()
-    sql = "SELECT id, kind, day, activity_id, created_at, summary FROM coach_reports WHERE day >= ?"
+    sql = "SELECT * FROM coach_reports WHERE day >= ?"
     params = [start]
     if kind:
         sql += " AND kind = ?"
@@ -1070,7 +1247,156 @@ def list_reports(days: int = 14, kind: str = None, db_file=None) -> list:
             return []
         rows = c.execute(sql + " ORDER BY day DESC, id DESC", params).fetchall()
     return [_clean({"id": r["id"], "art": r["kind"], "tag": r["day"], "activity_id": r["activity_id"],
+                    "zeitraum": r["period"] if "period" in r.keys() else None,
                     "erstellt": r["created_at"], "zusammenfassung": r["summary"]}) for r in rows]
+
+
+# --- Wochen- und Monatsrückblick ----------------------------------------------
+
+def _mean(vals, n=1):
+    v = [x for x in vals if isinstance(x, (int, float))]
+    return round(sum(v) / len(v), n) if v else None
+
+
+def _volume(acts: list) -> dict:
+    groups, total = {}, {"einheiten": 0, "stunden": 0.0, "last": 0.0}
+    for a in acts:
+        if a.get("sport_gruppe") in sports.NO_TRAINING:
+            continue
+        g = groups.setdefault(a["sport_gruppe"], {"einheiten": 0, "km": 0.0, "stunden": 0.0, "last": 0.0,
+                                                  "hoehenmeter": 0.0})
+        g["einheiten"] += 1
+        g["km"] += a.get("km") or 0
+        g["stunden"] += (a.get("minuten") or 0) / 60
+        g["last"] += a.get("last") or 0
+        g["hoehenmeter"] += a.get("hoehenmeter") or 0
+        total["einheiten"] += 1
+        total["stunden"] += (a.get("minuten") or 0) / 60
+        total["last"] += a.get("last") or 0
+    out = {name: _clean({"einheiten": g["einheiten"], "km": round(g["km"], 1) or None,
+                         "stunden": round(g["stunden"], 1), "last": round(g["last"]) or None,
+                         "hoehenmeter": round(g["hoehenmeter"]) or None})
+           for name, g in sorted(groups.items(), key=lambda kv: -kv[1]["stunden"])}
+    return {"gesamt": {"einheiten": total["einheiten"], "stunden": round(total["stunden"], 1),
+                       "last": round(total["last"])}, "sportarten": out}
+
+
+def _recovery(days: list) -> dict:
+    sleep = [d.get("schlaf_h") for d in days if d.get("schlaf_h")]
+    last = days[-1] if days else {}
+    return _clean({
+        "bereitschaft_morgens_avg": _mean([d.get("bereitschaft") for d in days], 0),
+        "bereitschaft_morgens_min": min([d["bereitschaft"] for d in days if d.get("bereitschaft") is not None],
+                                        default=None),
+        "tage_bereitschaft_unter_25": sum(1 for d in days if (d.get("bereitschaft") or 100) < 25) or None,
+        "hrv_nacht_avg": _mean([d.get("hrv_nacht") for d in days], 0),
+        "hrv_basis": (f"{last.get('hrv_basis_von')}-{last.get('hrv_basis_bis')}"
+                      if last.get("hrv_basis_von") else None),
+        "tage_hrv_unter_basis": sum(1 for d in days if d.get("hrv_nacht") and d.get("hrv_basis_von")
+                                    and d["hrv_nacht"] < d["hrv_basis_von"]) or None,
+        "ruhepuls_avg": _mean([d.get("ruhepuls") for d in days], 1),
+        "ruhepuls_max": max([d["ruhepuls"] for d in days if d.get("ruhepuls")], default=None),
+        "schlaf_h_avg": _mean(sleep, 2),
+        "naechte_unter_7h": sum(1 for x in sleep if x < 7) or None,
+        "schlafwert_avg": _mean([d.get("schlafwert") for d in days], 0),
+        "body_battery_aufwachen_avg": _mean([d.get("body_battery_aufwachen") for d in days], 0),
+        "akute_last_ende": last.get("akute_last"), "chronische_last_ende": last.get("chronische_last"),
+        "trainingsstatus_ende": last.get("status"),
+        "vo2max_anfang": next((d["vo2max"] for d in days if d.get("vo2max")), None),
+        "vo2max_ende": next((d["vo2max"] for d in reversed(days) if d.get("vo2max")), None),
+    })
+
+
+def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
+    """Alles für einen Wochen- oder Monatsrückblick in einem Abruf."""
+    kind = (kind or "woche").strip().lower()
+    per, start, end = _period_range(kind, period)
+    prev, pstart, pend = _period_range(kind, _previous_period(kind, start))
+    s, e, ps, pe = start.isoformat(), end.isoformat(), pstart.isoformat(), pend.isoformat()
+    acts = list_activities(s, e, limit=500, db_file=db_file)
+    prev_acts = list_activities(ps, pe, limit=500, db_file=db_file)
+    days = daily_metrics(s, e, db_file=db_file)
+    prev_days = daily_metrics(ps, pe, db_file=db_file)
+    with connect(db_file) as c:
+        diary = [_diary_out(d) for d in _diary_between(c, s, e)]
+        notes = _notes_between(c, s, e)
+        reps = c.execute("SELECT * FROM coach_reports WHERE day BETWEEN ? AND ? ORDER BY day, id",
+                         (s, e)).fetchall() if _table_exists(c, "coach_reports") else []
+        last_same = c.execute("SELECT * FROM coach_reports WHERE kind=? AND period < ? ORDER BY period DESC LIMIT 1",
+                              (kind, per)).fetchone() if _table_exists(c, "coach_reports") else None
+        plan = c.execute("SELECT created_at, text FROM coach_plan ORDER BY id DESC LIMIT 1").fetchone() \
+            if _table_exists(c, "coach_plan") else None
+        races = c.execute("SELECT * FROM races WHERE day >= ? ORDER BY day", (s,)).fetchall() \
+            if _table_exists(c, "races") else []
+    acts = sorted(acts, key=lambda a: a.get("start") or "")
+    runs = [a for a in acts if a.get("sport_gruppe") == "laufen"]
+    key_sessions = []
+    for a in acts:
+        lang = (a.get("km") or 0) >= 25 or (a.get("minuten") or 0) >= 150
+        hart = (a.get("te_aerob") or 0) >= 3.5 or (a.get("te_anaerob") or 0) >= 2.0 or (a.get("last") or 0) >= 200
+        if lang or hart:
+            key_sessions.append(_clean({
+                "activity_id": a["activity_id"], "start": a.get("start"), "name": a.get("name"),
+                "sport_gruppe": a.get("sport_gruppe"), "art": "lang" if lang else "hart",
+                "km": a.get("km"), "minuten": a.get("minuten"), "pace": a.get("pace"), "hf_avg": a.get("hf_avg"),
+                "hoehenmeter": a.get("hoehenmeter"), "last": a.get("last"), "te_aerob": a.get("te_aerob"),
+                "te_anaerob": a.get("te_anaerob"), "rpe": a.get("rpe"), "gefuehl": a.get("gefuehl"),
+                "drift_pct": a.get("drift_pct"), "zieltempo_treffer_pct": a.get("zieltempo_treffer_pct"),
+            }))
+    per_day = []
+    acts_by_day = {}
+    for a in acts:
+        acts_by_day.setdefault((a.get("start") or "")[:10], []).append(a)
+    for d in days:
+        da = acts_by_day.get(d["tag"], [])
+        per_day.append(_clean({
+            "tag": d["tag"], "wochentag": WEEKDAYS[date.fromisoformat(d["tag"]).weekday()],
+            "einheiten": [f"{a.get('name')} ({a.get('sport_gruppe')}, {a.get('minuten')} min"
+                          + (f", {a['km']} km" if a.get("km") else "") + ")" for a in da] or None,
+            "last": round(sum(a.get("last") or 0 for a in da)) or None,
+            "bereitschaft": d.get("bereitschaft"), "bereitschaft_abend": d.get("bereitschaft_abend"),
+            "hrv": d.get("hrv_nacht"), "ruhepuls": d.get("ruhepuls"), "schlaf_h": d.get("schlaf_h"),
+            "tagebuch": d.get("tagebuch"), "notizen": d.get("notizen"),
+        }))
+    reports = [_clean({"art": r["kind"], "tag": r["day"], "activity_id": r["activity_id"],
+                       "zusammenfassung": r["summary"]}) for r in reps
+               if kind == "woche" or r["kind"] in ("woche", "training")]
+    out = {
+        "zeitraum": {"art": kind, "periode": per, "von": s, "bis": e,
+                     "tage_mit_daten": len(days), "vorperiode": prev},
+        "umfang": _volume(acts),
+        "umfang_vorperiode": _volume(prev_acts),
+        "laufen": _clean({
+            "km": round(sum(a.get("km") or 0 for a in runs), 1), "laeufe": len(runs),
+            "laengster_km": max([a.get("km") or 0 for a in runs], default=None),
+            "hoehenmeter": round(sum(a.get("hoehenmeter") or 0 for a in runs)) or None,
+        }),
+        "schluesseleinheiten": key_sessions,
+        "erholung": _recovery(days),
+        "erholung_vorperiode": _recovery(prev_days),
+        "tagebuch": diary,
+        "notizen": [_note_text(n) for n in notes],
+        "berichte_im_zeitraum": reports,
+        "letzter_rueckblick": _clean({"zeitraum": last_same["period"], "zusammenfassung": last_same["summary"]})
+        if last_same else None,
+        "plan": plan["text"] if plan else None,
+        "wettkaempfe": [_race_out(r) for r in races if r["status"] == "geplant"],
+    }
+    if kind == "woche":
+        out["tage"] = per_day
+    else:
+        weeks = {}
+        for d in per_day:
+            wk = _iso_week(d["tag"])
+            weeks.setdefault(wk, []).append(d)
+        out["wochen"] = [{
+            "woche": wk, "last": round(sum(d.get("last") or 0 for d in ds)),
+            "laufen_km": round(sum(a.get("km") or 0 for a in runs if _iso_week(a["start"]) == wk), 1),
+            "bereitschaft_avg": _mean([d.get("bereitschaft") for d in ds], 0),
+            "hrv_avg": _mean([d.get("hrv") for d in ds], 0),
+            "schlaf_h_avg": _mean([d.get("schlaf_h") for d in ds], 2),
+        } for wk, ds in sorted(weeks.items())]
+    return out
 
 
 # --- Freie Abfrage ------------------------------------------------------------
