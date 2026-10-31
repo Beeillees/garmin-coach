@@ -13,6 +13,8 @@ log = logging.getLogger("garmin_coach.fit")
 
 # Erhöhen, wenn sich Parser oder Kennzahlen ändern: dann werden alle Dateien neu ausgewertet.
 PARSER_VERSION = 1
+# Erhöhen, wenn ein Fehler behoben wurde: dann werden nur die fehlerhaften Dateien erneut versucht.
+ERROR_RETRY_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fit_sessions (
@@ -159,7 +161,7 @@ def process_file(store: Store, activity_id: int, path: Path) -> bool:
     except Exception as e:
         store.conn.execute(
             "INSERT OR REPLACE INTO fit_errors(activity_id, parser_version, failed_at, error) "
-            "VALUES(?,?,?,?)", (activity_id, PARSER_VERSION, now_iso(), repr(e)[:1000]),
+            "VALUES(?,?,?,?)", (activity_id, ERROR_RETRY_VERSION, now_iso(), repr(e)[:1000]),
         )
         store.conn.commit()
         log.warning("  FIT %s konnte nicht ausgewertet werden: %s", activity_id, e)
@@ -178,7 +180,7 @@ def process_pending(store: Store, data_dir: Path) -> int:
           AND (e.activity_id IS NULL OR e.parser_version < ?)
         ORDER BY a.start_local
         """,
-        (PARSER_VERSION, PARSER_VERSION),
+        (PARSER_VERSION, ERROR_RETRY_VERSION),
     ).fetchall()
     if not rows:
         return 0

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+- FIT-Auswertung: Absturz behoben, wenn in einer Datei bei einer Pulszone der Wert fehlt
+  (betraf z. B. den Silvesterlauf 2025).
+- Fehlerhafte Dateien werden nach einer Fehlerbehebung erneut versucht, ohne dass alle Dateien
+  neu ausgewertet werden (`ERROR_RETRY_VERSION`).
+
 ## 0.4.0
 Datenbasis vervollständigt: Alles, was in den Rohdaten steckt, kommt jetzt über die Werkzeuge raus.
 

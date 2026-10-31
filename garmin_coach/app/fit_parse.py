@@ -100,7 +100,8 @@ def parse(path: str) -> dict:
         "threshold_hr": tiz.get("threshold_heart_rate"),
         "resting_hr": tiz.get("resting_heart_rate"),
         "hr_zone_bounds": list(tiz.get("hr_zone_high_boundary") or []) or None,
-        "time_in_hr_zone": [round(x, 1) for x in (tiz.get("time_in_hr_zone") or [])] or None,
+        "time_in_hr_zone": [None if x is None else round(x, 1)
+                            for x in (tiz.get("time_in_hr_zone") or [])] or None,
         "devices": devices,
         "data": _jsonable(s),
     }
