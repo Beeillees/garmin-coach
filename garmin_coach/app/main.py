@@ -75,6 +75,15 @@ def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     store = Store(DB_FILE)
 
+    has_tokens = TOKEN_DIR.exists() and any(TOKEN_DIR.iterdir())
+    if not has_tokens and not (opts.get("email") and opts.get("password")):
+        log.error(
+            "Keine Garmin-Zugangsdaten. Bitte im Reiter 'Konfiguration' E-Mail und "
+            "Passwort eintragen, speichern und das Add-on neu starten."
+        )
+        while True:  # nicht abstürzen, sonst startet HA das Add-on in einer Schleife neu
+            time.sleep(3600)
+
     g = login(opts)
 
     # Einmaliges Nachladen alter Tageswerte und Aktivitäten
