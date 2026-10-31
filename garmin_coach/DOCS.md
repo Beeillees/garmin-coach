@@ -28,6 +28,9 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `fit_lengths` | Schwimmbahnen |
 | `fit_sets` | Sätze (Kraft, HIIT) |
 | `fit_errors` | FIT-Dateien, die sich nicht auswerten ließen |
+| `garmin_snapshots` | Täglicher Schnappschuss: Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, Endurance-/Hill-Score, geplante Trainings, Trainingspläne |
+| `notes` | Notizen zu Krankheit, Verletzung, Reise, Stress |
+| `mcp_log` | Protokoll der Abfragen von Claude (90 Tage) |
 | `sync_log` | Protokoll der Sync-Läufe |
 
 ### Einheiten
@@ -72,10 +75,13 @@ ist normal.
 |---|---|
 | `data_overview` | Datenstand, Zeiträume, Sportarten, letzter Sync |
 | `list_activities` | Einheiten mit Kernwerten, filterbar nach Zeitraum und Sportart |
-| `get_activity` | Alle Details einer Einheit inkl. Runden, Workout-Schritten, Bahnen, Sätzen |
+| `get_activity` | Alle Details einer Einheit inkl. Runden, Workout-Schritten, Bahnen, Sätzen, Zusatzwerten aus Garmin Connect |
 | `get_activity_timeseries` | Verläufe (z. B. Pulskurve) in wählbarer Auflösung |
-| `daily_metrics` | HRV, Ruhepuls, Schlaf, Body Battery, Stress, Bereitschaft, Trainingsstatus, VO2max |
-| `weekly_summary` | Wochenumfänge pro Sportart |
+| `daily_metrics` | HRV, Ruhepuls, Schlaf, Hauttemperatur, Body Battery, Stress, Bereitschaft morgens/abends, Trainingsstatus, VO2max, Notizen |
+| `readiness_detail` | Alle Bereitschafts-Einträge eines Tages mit Anlass und Einheiten |
+| `weekly_summary` | Wochenumfänge pro Sportart-Gruppe mit Wochensumme und Notizen |
+| `garmin_profile` | Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, geplante Trainings |
+| `add_note`, `list_notes`, `delete_note` | Notizen anlegen, anzeigen, löschen (einzige schreibende Werkzeuge) |
 | `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |
 
 ## Einstellungen
@@ -88,6 +94,7 @@ ist normal.
 | `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
 | `sync_interval_hours` | Abstand zwischen zwei Syncs (Standard 6 Stunden). |
 | `mcp_enabled` | MCP-Server für Claude an/aus (Standard: an). |
+| `log_level` | `info` (Standard) oder `debug` (vollständige Parameter jeder Abfrage). |
 
 ## MFA
 
@@ -100,3 +107,7 @@ in die Datei `/share/garmin-coach/mfa_code.txt` schreiben.
 Pro Tag erscheint eine Zeile mit den wichtigsten Kennzahlen, pro neuer Aktivität eine
 Zeile mit Datum, Sportart, Distanz und Dauer. Einzelne fehlende Werte (z. B. Tage ohne
 Uhr) erscheinen als Warnung und stoppen den Sync nicht.
+
+Jede Abfrage von Claude erscheint als eine Zeile, z. B.
+`MCP query_sql | 7 Zeilen | 42 ms | ok | sql=SELECT ...`. Status ist `ok`, `leer`,
+`abgeschnitten` oder `Fehler`; Abfragen über 2 Sekunden erscheinen als Warnung.

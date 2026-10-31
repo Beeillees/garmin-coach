@@ -65,9 +65,13 @@ def _day_summary(values: dict) -> str:
     bb = _get(values.get("user_summary"), "bodyBatteryHighestValue")
     if bb:
         parts.append(f"Body Battery max {bb}")
-    tr = _get(values.get("training_readiness"), "score")
-    if tr:
-        parts.append(f"Bereitschaft {tr}")
+    tr = values.get("training_readiness")
+    morning = next((e for e in tr if isinstance(e, dict) and e.get("inputContext") == "AFTER_WAKEUP_RESET"),
+                   None) if isinstance(tr, list) else None
+    if morning and morning.get("score") is not None:
+        parts.append(f"Bereitschaft morgens {morning['score']}")
+    elif _get(tr, "score"):
+        parts.append(f"Bereitschaft {_get(tr, 'score')}")
     return ", ".join(parts) if parts else "keine Kennzahlen"
 
 
@@ -147,12 +151,65 @@ def sync_activities(g: Garmin, store: Store, data_dir: Path, days_back: int) -> 
     return new_fits
 
 
-def run_sync(g: Garmin, store: Store, data_dir: Path, days_back: int) -> str:
+# Zustände, die nicht an einen Tag gebunden sind. Ein Schnappschuss pro Tag ergibt die Historie.
+def _snapshot_sources(today: date) -> dict:
+    t = today.isoformat()
+    return {
+        "lactate_threshold": lambda g: g.get_lactate_threshold(latest=True),
+        "race_predictions": lambda g: g.get_race_predictions(),
+        "personal_records": lambda g: g.get_personal_record(),
+        "heart_rate_zones": lambda g: g.get_heart_rate_zones(),
+        "endurance_score": lambda g: g.get_endurance_score((today - timedelta(weeks=12)).isoformat(), t),
+        "hill_score": lambda g: g.get_hill_score((today - timedelta(weeks=12)).isoformat(), t),
+        "scheduled_workouts": lambda g: g.get_scheduled_workouts_by_period(
+            (today - timedelta(days=14)).isoformat(), (today + timedelta(days=42)).isoformat()),
+        "training_plans": lambda g: g.get_active_training_plans(),
+    }
+
+
+def _history_sources(start: date, end: date) -> dict:
+    s, e = start.isoformat(), end.isoformat()
+    return {
+        "lactate_threshold_history": lambda g: g.get_lactate_threshold(latest=False, start_date=s, end_date=e),
+        "race_predictions_history": lambda g: g.get_race_predictions(s, e, "daily"),
+        "endurance_score_history": lambda g: g.get_endurance_score(s, e, "weekly"),
+    }
+
+
+def _size(data) -> str:
+    if isinstance(data, list):
+        return f"{len(data)} Einträge"
+    if isinstance(data, dict):
+        return f"{len(data)} Felder"
+    return "leer" if data is None else "ok"
+
+
+def sync_snapshots(g: Garmin, store: Store, history_days: int = 0) -> int:
+    """Schnappschüsse von heute; mit history_days zusätzlich einmal die Historie."""
+    today = date.today()
+    sources = dict(_snapshot_sources(today))
+    if history_days > 0:
+        sources.update(_history_sources(today - timedelta(days=history_days), today))
+    saved = 0
+    for source, fn in sources.items():
+        try:
+            data = fn(g)
+            store.save_snapshot(today.isoformat(), source, data)
+            saved += 1
+            log.info("Schnappschuss %s: %s", source, _size(data))
+        except Exception as e:  # einzelne Quelle darf den Rest nicht stoppen
+            log.warning("Schnappschuss %s fehlgeschlagen: %s", source, e)
+        time.sleep(PAUSE_S)
+    return saved
+
+
+def run_sync(g: Garmin, store: Store, data_dir: Path, days_back: int, history_days: int = 0) -> str:
     log_id = store.log_start()
     try:
         n_daily = sync_daily(g, store, days_back)
         n_fit = sync_activities(g, store, data_dir, days_back)
-        msg = f"{n_daily} Tageswerte, {n_fit} neue FIT-Dateien"
+        n_snap = sync_snapshots(g, store, history_days)
+        msg = f"{n_daily} Tageswerte, {n_fit} neue FIT-Dateien, {n_snap} Schnappschüsse"
         store.log_finish(log_id, "ok", msg)
         log.info("Sync fertig: %s", msg)
         return msg

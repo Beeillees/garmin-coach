@@ -31,6 +31,7 @@ Alles landet in `/share/garmin-coach/` auf deinem Home Assistant:
 | `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
 | `sync_interval_hours` | Abstand zwischen zwei Syncs (Standard 6 Stunden). |
 | `mcp_enabled` | MCP-Server für Claude an/aus (Standard: an). |
+| `log_level` | `info` (Standard) oder `debug`. |
 
 ## Claude anbinden
 

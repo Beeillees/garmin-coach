@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.4.0
+Datenbasis vervollständigt: Alles, was in den Rohdaten steckt, kommt jetzt über die Werkzeuge raus.
+
+- **Fehler behoben – Trainingsbereitschaft:** `daily_metrics` zeigte den letzten Wert des Tages
+  statt des Morgenwerts. Jetzt:
+  - `bereitschaft` = Wert nach dem Aufwachen, `bereitschaft_abend` = letzter Wert des Tages,
+    jeweils mit Erholungszeit in Stunden
+  - `bereitschaft_delta` (Tagesbilanz) und `regeneration_nacht` (Morgen minus Abend des Vortags)
+  - Faktoren der Bereitschaft (Schlaf, HRV, Erholungszeit, Lastverhältnis, Stress- und Schlafverlauf)
+  - Neues Werkzeug `readiness_detail`: alle Einträge eines Tages mit Uhrzeit und Anlass, dazu die Einheiten
+- **Einheitliche Sportart:** Feld `sport_gruppe` (laufen, rad, schwimmen, kraft_hiit, gehen,
+  kein_sport, sonstiges). Filter `sport` akzeptiert Gruppe oder Garmin-Typ. In `query_sql` als
+  Funktion `sport_gruppe(type_key, fit_sport)`. Atemübungen zählen nicht mehr zu den Umfängen.
+- **`data_overview`:** Sportarten über alle Aktivitäten statt nur über ausgewertete; Fortschritt
+  der FIT-Auswertung (ausgewertet, offen, bis wann, Prozent).
+- **Aktivitäten ohne FIT-Auswertung vollständig:** Pace, Last, Trainingseffekt, Kadenz, Watt,
+  Höhenmeter, Laufdynamik und Pulszonen kommen aus Garmin Connect, Feld `quelle` zeigt woher.
+  Leere Felder werden weggelassen.
+- **Neue Aktivitätswerte aus Garmin Connect:** steigungsbereinigte Pace (`pace_gap`),
+  Body-Battery-Verbrauch, Trainingseffekt-Label, schnellste Abschnitte, Bestzeit, Schweißverlust,
+  Atemfrequenz, Temperatur, VO2max-Schätzung, Leistungszonen, Abschnitte (Block `garmin` in `get_activity`).
+- **Pulszonen einheitlich** Zone 1–5 (FIT speichert zusätzlich Zeit unter Zone 1, jetzt eigenes Feld).
+- **Neue Tageswerte:** Hauttemperatur-Abweichung, SpO2, Atemaussetzer, Stress im Schlaf,
+  Body Battery beim Aufwachen und über Nacht, Atmung wach, Puls-Warnungen, Intensitätsminuten,
+  Stressminuten je Stufe, Wachzeit, Unruhe, Schlafbeginn/-ende, Hitze-/Höhenakklimatisierung.
+- **`weekly_summary`:** ISO-Wochen (Mo–So) mit Wochensumme, alle Aktivitäten (auch nicht
+  ausgewertete), Pace beim Laufen, Notizen der Woche.
+- **Notizen:** Neue Tabelle `notes` und Werkzeuge `add_note`, `list_notes`, `delete_note`
+  (Kategorien krank, verletzt, reise, stress, sonstiges). Notizen erscheinen in `daily_metrics`,
+  `weekly_summary` und `get_activity`. Erstes schreibendes Werkzeug; alles andere bleibt nur lesend.
+- **Leistungsprofil aus Garmin Connect:** Täglicher Schnappschuss von Laktatschwelle,
+  Wettkampfprognosen, Bestzeiten, Pulszonen, Endurance- und Hill-Score, geplanten Trainings und
+  aktiven Trainingsplänen (Tabelle `garmin_snapshots`). Einmalig wird die Historie von
+  Laktatschwelle, Prognosen und Endurance-Score nachgeladen. Neues Werkzeug `garmin_profile`.
+- **Protokoll der MCP-Aufrufe:** Pro Aufruf eine Zeile mit Werkzeug, Zeilenzahl, Dauer, Status
+  (ok, leer, abgeschnitten, Fehler) und Parametern (lange SQL nach 300 Zeichen gekürzt).
+  Aufrufe über 2 s als Warnung. Zusätzlich Tabelle `mcp_log` (90 Tage).
+- Neue Option `log_level` (`info` | `debug`); bei `debug` vollständige Parameter.
+
 ## 0.3.0
 - **MCP-Server für Claude**: Claude kann jetzt direkt und nur lesend auf `garmin.db` zugreifen.
   - Werkzeuge: `data_overview`, `list_activities`, `get_activity`, `get_activity_timeseries`,

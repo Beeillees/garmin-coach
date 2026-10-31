@@ -41,6 +41,41 @@ CREATE TABLE IF NOT EXISTS sync_log (
     status     TEXT,
     message    TEXT
 );
+
+-- Zustände aus Garmin Connect, die nicht an einen Tag gebunden sind (Laktatschwelle,
+-- Wettkampfprognosen, Bestzeiten, Pulszonen, geplante Trainings). Ein Schnappschuss pro
+-- Tag und Quelle; daraus entsteht mit der Zeit die Historie.
+CREATE TABLE IF NOT EXISTS garmin_snapshots (
+    day        TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    data       TEXT,
+    PRIMARY KEY (day, source)
+);
+
+-- Notizen zu Krankheit, Verletzung, Reise, Stress usw.
+CREATE TABLE IF NOT EXISTS notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    day_from   TEXT NOT NULL,
+    day_to     TEXT NOT NULL,
+    category   TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_days ON notes(day_from, day_to);
+
+-- Protokoll der MCP-Werkzeugaufrufe (wird auf 90 Tage begrenzt)
+CREATE TABLE IF NOT EXISTS mcp_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    at         TEXT NOT NULL,
+    tool       TEXT NOT NULL,
+    params     TEXT,
+    duration_ms INTEGER,
+    result_rows INTEGER,
+    status     TEXT,
+    error      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_log_at ON mcp_log(at);
 """
 
 
@@ -51,7 +86,7 @@ def now_iso() -> str:
 class Store:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
+        self.conn = sqlite3.connect(str(path), timeout=30)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
@@ -70,6 +105,16 @@ class Store:
             "INSERT INTO daily_raw(day, source, fetched_at, data) VALUES(?,?,?,?) "
             "ON CONFLICT(day, source) DO UPDATE SET fetched_at=excluded.fetched_at, "
             "data=COALESCE(excluded.data, daily_raw.data)",
+            (day, source, now_iso(), payload),
+        )
+        self.conn.commit()
+
+    def save_snapshot(self, day: str, source: str, data) -> None:
+        payload = None if data in (None, {}, []) else json.dumps(data, ensure_ascii=False)
+        self.conn.execute(
+            "INSERT INTO garmin_snapshots(day, source, fetched_at, data) VALUES(?,?,?,?) "
+            "ON CONFLICT(day, source) DO UPDATE SET fetched_at=excluded.fetched_at, "
+            "data=COALESCE(excluded.data, garmin_snapshots.data)",
             (day, source, now_iso(), payload),
         )
         self.conn.commit()

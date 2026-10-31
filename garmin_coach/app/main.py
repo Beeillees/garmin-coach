@@ -20,6 +20,8 @@ DATA_DIR = Path("/share/garmin-coach")
 DB_FILE = DATA_DIR / "garmin.db"
 MFA_FILE = DATA_DIR / "mfa_code.txt"
 BACKFILL_MARKER = Path("/data/backfill_done")
+# Einmaliges Nachladen der Historie von Laktatschwelle, Wettkampfprognosen usw. (ab 0.4.0)
+HISTORY_MARKER = Path("/data/history_snapshots_done")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +33,12 @@ log = logging.getLogger("garmin_coach")
 
 def load_options() -> dict:
     return json.loads(OPTIONS_FILE.read_text())
+
+
+def apply_log_level(opts: dict) -> None:
+    level = logging.DEBUG if str(opts.get("log_level") or "info").lower() == "debug" else logging.INFO
+    logging.getLogger().setLevel(level)
+    logging.getLogger("garmin_coach").setLevel(level)
 
 
 def make_mfa_prompt(opts: dict):
@@ -109,8 +117,14 @@ def sync_worker(opts: dict) -> None:
     interval = int(opts.get("sync_interval_hours") or 6) * 3600
     days_back = int(opts.get("days_back") or 30)
     while True:
+        history_days = 0
+        if not HISTORY_MARKER.exists():
+            history_days = max(int(opts.get("backfill_days") or 0), 730)
+            log.info("Lade einmalig die Historie von Laktatschwelle, Prognosen usw. (%d Tage)", history_days)
         try:
-            run_sync(g, store, DATA_DIR, days_back)
+            run_sync(g, store, DATA_DIR, days_back, history_days)
+            if history_days:
+                HISTORY_MARKER.write_text(str(history_days))
         except Exception as e:
             log.error("Sync fehlgeschlagen: %s", e)
             try:
@@ -135,6 +149,7 @@ def _thread(name: str, target, *args) -> None:
 
 def main() -> None:
     opts = load_options()
+    apply_log_level(opts)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # Datenbank-Schema anlegen, bevor der MCP-Server darauf zugreift
