@@ -1,0 +1,27 @@
+name: Garmin Coach
+version: "0.1.0"
+slug: garmin_coach
+description: Speichert Garmin-Läufe (FIT) und tägliche Health-Werte lokal in einer SQLite-Datenbank.
+url: https://github.com/Beeillees/garmin-coach
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+map:
+  - share:rw
+options:
+  email: ""
+  password: ""
+  mfa_code: ""
+  days_back: 30
+  backfill_days: 0
+  sync_interval_hours: 6
+schema:
+  email: str
+  password: password
+  mfa_code: str?
+  days_back: int(1,365)
+  backfill_days: int(0,5000)
+  sync_interval_hours: int(1,24)

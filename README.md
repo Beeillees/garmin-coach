@@ -1,0 +1,48 @@
+# Garmin Coach
+
+Home-Assistant-Add-on, das deine Garmin-Daten **lokal** speichert:
+
+- alle Aktivitäten als Original-**FIT-Dateien**
+- tägliche Health-Werte: HRV, Ruhepuls, Schlaf, Body Battery, Stress, Trainingsbereitschaft, Trainingsstatus, VO2max
+
+Alles landet in `/share/garmin-coach/` auf deinem Home Assistant:
+
+```
+/share/garmin-coach/
+├── garmin.db          SQLite-Datenbank (Tageswerte, Aktivitäten, Sync-Protokoll)
+└── fit/2026/…fit      FIT-Dateien, nach Jahr sortiert
+```
+
+## Installation
+
+1. In Home Assistant: **Einstellungen → Apps → App-Store**, oben rechts **⋮ → Repositories**
+2. `https://github.com/Beeillees/garmin-coach` hinzufügen
+3. **Garmin Coach** installieren
+4. Im Reiter **Konfiguration** E-Mail und Passwort deines Garmin-Kontos eintragen und speichern
+5. Starten und das **Protokoll** beobachten
+
+## Einstellungen
+
+| Option | Bedeutung |
+|---|---|
+| `email`, `password` | Garmin-Connect-Zugang. Nach dem ersten Login werden Tokens gespeichert. |
+| `mfa_code` | Nur falls Garmin beim ersten Login einen Code verlangt (siehe unten). |
+| `days_back` | Wie viele Tage bei jedem Sync geprüft werden (Standard 30). |
+| `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
+| `sync_interval_hours` | Abstand zwischen zwei Syncs (Standard 6 Stunden). |
+
+## MFA
+
+Verlangt Garmin einen Bestätigungscode, steht das im Protokoll. Dann entweder den Code
+in die Option `mfa_code` eintragen und neu starten, oder ihn innerhalb von 10 Minuten
+in die Datei `/share/garmin-coach/mfa_code.txt` schreiben.
+
+## Fahrplan
+
+1. ✅ Sammler: Tageswerte und FIT-Dateien lokal speichern
+2. Historie aus dem Garmin-Datenexport importieren
+3. FIT-Auswertung pro Lauf (Pace, HF-Zonen, Drift, Kadenz, Splits)
+4. MCP-Server für Claude
+5. Trainings in den Garmin-Kalender schreiben
+6. Täglicher Coach-Bericht
+7. Dashboard in Home Assistant
