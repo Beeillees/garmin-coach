@@ -76,7 +76,46 @@ CREATE TABLE IF NOT EXISTS mcp_log (
     error      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_log_at ON mcp_log(at);
+
+-- Trainingsplan als Text; jede Änderung ist eine neue Zeile, die neueste gilt.
+CREATE TABLE IF NOT EXISTS coach_plan (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    text       TEXT NOT NULL
+);
+
+-- Wettkämpfe
+CREATE TABLE IF NOT EXISTS races (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day         TEXT NOT NULL,          -- YYYY-MM-DD
+    name        TEXT NOT NULL,
+    sport       TEXT,                   -- laufen, trail, schwimmen, hyrox, ...
+    distance_km REAL,
+    priority    TEXT,                   -- A, B, C
+    status      TEXT NOT NULL DEFAULT 'geplant',  -- geplant, abgesagt, erledigt
+    note        TEXT,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_races_day ON races(day);
+
+-- Berichte des Coaches (Morgen, Training, Abend); verhindert doppelte Auswertungen.
+CREATE TABLE IF NOT EXISTS coach_reports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT NOT NULL,          -- morgen, training, abend
+    day         TEXT NOT NULL,
+    activity_id INTEGER,
+    created_at  TEXT NOT NULL,
+    summary     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_coach_reports_day ON coach_reports(day, kind);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_reports_activity ON coach_reports(activity_id)
+    WHERE activity_id IS NOT NULL;
 """
+
+# Spalten, die nach der ersten Version dazugekommen sind: (Tabelle, Spalte, Definition)
+MIGRATIONS = [
+    ("sync_log", "kind", "TEXT DEFAULT 'voll'"),
+]
 
 
 def now_iso() -> str:
@@ -89,6 +128,10 @@ class Store:
         self.conn = sqlite3.connect(str(path), timeout=30)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        for table, col, definition in MIGRATIONS:
+            cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
         self.conn.commit()
 
     # --- Tageswerte ---------------------------------------------------------
@@ -120,6 +163,11 @@ class Store:
         self.conn.commit()
 
     # --- Aktivitäten --------------------------------------------------------
+
+    def has_activity(self, activity_id: int) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM activities WHERE activity_id=?", (activity_id,)
+        ).fetchone() is not None
 
     def activity_fit_path(self, activity_id: int):
         row = self.conn.execute(
@@ -156,12 +204,21 @@ class Store:
 
     # --- Protokoll ----------------------------------------------------------
 
-    def log_start(self) -> int:
+    def log_start(self, kind: str = "voll") -> int:
         cur = self.conn.execute(
-            "INSERT INTO sync_log(started_at, status) VALUES(?, 'running')", (now_iso(),)
+            "INSERT INTO sync_log(started_at, status, kind) VALUES(?, 'running', ?)", (now_iso(), kind)
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def close_orphaned_syncs(self) -> int:
+        """Beim Start: Läufe, die noch auf 'running' stehen, wurden durch einen Neustart abgebrochen."""
+        n = self.conn.execute(
+            "UPDATE sync_log SET status='abgebrochen', message=COALESCE(message, 'durch Neustart abgebrochen') "
+            "WHERE status='running'"
+        ).rowcount
+        self.conn.commit()
+        return n
 
     def log_finish(self, log_id: int, status: str, message: str) -> None:
         self.conn.execute(

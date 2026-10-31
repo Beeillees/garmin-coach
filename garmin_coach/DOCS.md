@@ -30,8 +30,11 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `fit_errors` | FIT-Dateien, die sich nicht auswerten ließen |
 | `garmin_snapshots` | Täglicher Schnappschuss: Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, Endurance-/Hill-Score, geplante Trainings, Trainingspläne |
 | `notes` | Notizen zu Krankheit, Verletzung, Reise, Stress |
+| `coach_plan` | Trainingsplan als Text, jede Änderung eine neue Version |
+| `races` | Wettkämpfe mit Datum, Distanz, Priorität, Status |
+| `coach_reports` | Berichte des Coaches (Morgen, Training, Abend) mit Kurzfassung |
 | `mcp_log` | Protokoll der Abfragen von Claude (90 Tage) |
-| `sync_log` | Protokoll der Sync-Läufe |
+| `sync_log` | Protokoll der Sync-Läufe (`kind`: voll oder schnell) |
 
 ### Einheiten
 
@@ -81,7 +84,11 @@ ist normal.
 | `readiness_detail` | Alle Bereitschafts-Einträge eines Tages mit Anlass und Einheiten |
 | `weekly_summary` | Wochenumfänge pro Sportart-Gruppe mit Wochensumme und Notizen |
 | `garmin_profile` | Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, geplante Trainings |
-| `add_note`, `list_notes`, `delete_note` | Notizen anlegen, anzeigen, löschen (einzige schreibende Werkzeuge) |
+| `add_note`, `list_notes`, `delete_note` | Notizen anlegen, anzeigen, löschen |
+| `get_plan`, `set_plan` | Trainingsplan lesen und speichern, mit Wochentag und Wettkämpfen |
+| `set_race`, `delete_race` | Wettkämpfe anlegen, ändern, löschen |
+| `pending_reports`, `save_report`, `list_reports` | Welche Einheiten noch keinen Bericht haben; Berichte vermerken und anzeigen |
+| `sync_now` | Sofort-Sync (`schnell` oder `voll`) und auf das Ergebnis warten |
 | `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |
 
 ## Einstellungen
@@ -92,7 +99,9 @@ ist normal.
 | `mfa_code` | Nur falls Garmin beim ersten Login einen Code verlangt. |
 | `days_back` | Wie viele Tage bei jedem Sync geprüft werden (Standard 30). |
 | `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
-| `sync_interval_hours` | Abstand zwischen zwei Syncs (Standard 6 Stunden). |
+| `sync_times` | Uhrzeiten für den vollen Sync in lokaler Zeit (Standard `05:15`, `19:45`). |
+| `activity_check_minutes` | Abstand der Schnellprüfung auf neue Aktivitäten in Minuten (Standard 20, `0` = aus). |
+| `activity_check_window` | Zeitfenster der Schnellprüfung (Standard `06:00-22:00`). |
 | `mcp_enabled` | MCP-Server für Claude an/aus (Standard: an). |
 | `log_level` | `info` (Standard) oder `debug` (vollständige Parameter jeder Abfrage). |
 

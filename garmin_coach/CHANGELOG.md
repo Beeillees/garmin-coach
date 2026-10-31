@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.0
+Grundlage für den täglichen Coach: feste Sync-Zeiten, schnelle Erkennung neuer Einheiten,
+Trainingsplan und Berichte in der Datenbank.
+
+- **Fester Zeitplan statt alle 6 Stunden.** Neue Optionen:
+  - `sync_times` (Standard `05:15`, `19:45`): voller Sync zu festen Uhrzeiten, lokale Zeit.
+    Die Zeiten verschieben sich nicht mehr bei einem Neustart des Add-ons.
+  - `activity_check_minutes` (Standard 20) und `activity_check_window` (Standard `06:00-22:00`):
+    Schnellprüfung auf neue Aktivitäten mit einem einzigen Abruf bei Garmin. Nur wenn etwas Neues
+    da ist, werden FIT-Datei, Auswertung und die Tageswerte von heute geholt. `0` schaltet sie ab.
+  - `sync_interval_hours` wird nicht mehr verwendet.
+  - Beim Start läuft wie bisher einmal ein voller Sync.
+- **Neues Werkzeug `sync_now`** (`schnell` oder `voll`): Claude kann frische Daten holen und wartet
+  auf das Ergebnis.
+- **Verläufe von Laktatschwelle, Wettkampfprognosen und Endurance-Score repariert.** Garmin erlaubt
+  höchstens etwa ein Jahr pro Abfrage; 0.4.0 fragte zwei Jahre auf einmal ab, alle drei Abrufe
+  scheiterten, und die Markierung „erledigt“ wurde trotzdem gesetzt. Jetzt wird in Jahresstücken
+  geladen, und die Markierung gibt es nur, wenn alles geklappt hat. Nach dem Update werden die
+  Verläufe automatisch nachgeladen. `garmin_profile` liefert einen Verlauf komplett mit allen Stücken.
+- **Laktatschwelle lesbar:** `garmin_profile(source="lactate_threshold")` enthält jetzt `auswertung`
+  mit Schwellen-HF, Schwellen-Pace, FTP und W/kg. Garmin liefert das Tempo im Rohwert in 0,1 m/s
+  (0,408 = 4:05 min/km).
+- **Abgebrochene Sync-Läufe:** Einträge, die nach einem Neustart auf „running“ hängen blieben,
+  werden beim Start als „abgebrochen“ markiert. Schnellprüfungen stehen im Sync-Protokoll mit
+  `kind = schnell`, aber nur, wenn sie etwas gefunden haben.
+- **Trainingsplan und Wettkämpfe:** Tabellen `coach_plan` (Plan als Text, jede Änderung eine neue
+  Version) und `races`. Werkzeuge `get_plan`, `set_plan`, `set_race`, `delete_race`.
+- **Coach-Berichte:** Tabelle `coach_reports`. `pending_reports` zeigt Einheiten ohne Bericht und ob
+  Morgen-/Abendbericht fehlen, `save_report` vermerkt einen Bericht mit Kurzfassung (pro Aktivität
+  nur einmal), `list_reports` zeigt frühere Berichte.
+- Zeitzonen-Daten im Image, damit der Zeitplan in lokaler Zeit läuft.
+- Enthält 0.4.1 (Silvesterlauf-Fix).
+
 ## 0.4.1
 - FIT-Auswertung: Absturz behoben, wenn in einer Datei bei einer Pulszone der Wert fehlt
   (betraf z. B. den Silvesterlauf 2025).

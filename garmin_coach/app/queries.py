@@ -47,7 +47,7 @@ def connect(db_file: Path = None):
 
 @contextmanager
 def connect_rw(db_file: Path = None):
-    """Schreibende Verbindung, nur für Notizen."""
+    """Schreibende Verbindung für Notizen, Plan, Wettkämpfe und Berichte."""
     path = Path(db_file or DB_FILE)
     if not path.exists():
         raise FileNotFoundError(f"Datenbank {path} existiert noch nicht")
@@ -837,6 +837,24 @@ def weekly_summary(weeks: int = 12, sport=None, db_file=None) -> dict:
 
 # --- Leistungsprofil (Schnappschüsse) -----------------------------------------
 
+def _lactate_summary(data) -> dict:
+    """Laktatschwelle lesbar machen. Garmin liefert das Tempo im latest-Wert in 0,1 m/s
+    (0,408 entspricht 4,08 m/s = 4:05 min/km)."""
+    sh = (data or {}).get("speed_and_heart_rate") or {}
+    pw = (data or {}).get("power") or {}
+    speed = sh.get("speed")
+    ms = speed * 10 if speed else None
+    return _clean({
+        "schwelle_hf": sh.get("heartRate"),
+        "schwelle_tempo_ms": _r(ms, 2),
+        "schwelle_pace": pace(ms),
+        "ermittelt_am": (sh.get("calendarDate") or "")[:10] or None,
+        "ftp_watt": pw.get("functionalThresholdPower"),
+        "watt_pro_kg": _r(pw.get("powerToWeight"), 2),
+        "gewicht_kg": pw.get("weight"),
+    })
+
+
 def garmin_profile(source: str = None, day: str = None, db_file=None) -> dict:
     with connect(db_file) as c:
         if not _table_exists(c, "garmin_snapshots"):
@@ -846,7 +864,15 @@ def garmin_profile(source: str = None, day: str = None, db_file=None) -> dict:
                 "SELECT source, MIN(day) AS von, MAX(day) AS bis, COUNT(*) AS tage, "
                 "SUM(data IS NOT NULL) AS mit_daten FROM garmin_snapshots GROUP BY source ORDER BY source").fetchall()
             return {"quellen": [dict(r) for r in rows],
-                    "hinweis": "Mit source=<quelle> den Inhalt abrufen (neuester Stand oder day=YYYY-MM-DD)."}
+                    "hinweis": "Mit source=<quelle> den Inhalt abrufen (neuester Stand oder day=YYYY-MM-DD). "
+                               "Verläufe (*_history) liegen in Jahresstücken und kommen ohne day komplett."}
+        if source.endswith("_history") and not day:
+            rows = c.execute("SELECT day, fetched_at, data FROM garmin_snapshots WHERE source=? AND data IS NOT NULL "
+                             "ORDER BY day", (source,)).fetchall()
+            if not rows:
+                raise ValueError(f"Kein Verlauf für {source}")
+            return {"quelle": source, "stuecke": [{"ab": r["day"], "abgerufen": r["fetched_at"],
+                                                   "daten": _loads(r["data"])} for r in rows]}
         if day:
             row = c.execute("SELECT day, fetched_at, data FROM garmin_snapshots WHERE source=? AND day=?",
                             (source, day[:10])).fetchone()
@@ -855,7 +881,159 @@ def garmin_profile(source: str = None, day: str = None, db_file=None) -> dict:
                             "ORDER BY day DESC LIMIT 1", (source,)).fetchone()
     if not row:
         raise ValueError(f"Kein Schnappschuss für {source}")
-    return {"quelle": source, "tag": row["day"], "abgerufen": row["fetched_at"], "daten": _loads(row["data"])}
+    out = {"quelle": source, "tag": row["day"], "abgerufen": row["fetched_at"]}
+    data = _loads(row["data"])
+    if source == "lactate_threshold":
+        out["auswertung"] = _lactate_summary(data)
+    out["daten"] = data
+    return out
+
+
+# --- Trainingsplan, Wettkämpfe, Berichte ---------------------------------------
+
+RACE_STATUS = ("geplant", "abgesagt", "erledigt")
+REPORT_KINDS = ("morgen", "training", "abend")
+WEEKDAYS = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
+
+def _now_utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _race_out(r) -> dict:
+    d = dict(r)
+    days = (date.fromisoformat(d["day"]) - date.today()).days
+    return _clean({"id": d["id"], "datum": d["day"], "name": d["name"], "sport": d["sport"],
+                   "distanz_km": d["distance_km"], "prioritaet": d["priority"], "status": d["status"],
+                   "notiz": d["note"], "in_tagen": days, "in_wochen": _r(days / 7, 1)})
+
+
+def get_plan(db_file=None) -> dict:
+    today = date.today()
+    with connect(db_file) as c:
+        plan = c.execute("SELECT created_at, text FROM coach_plan ORDER BY id DESC LIMIT 1").fetchone() \
+            if _table_exists(c, "coach_plan") else None
+        races = c.execute("SELECT * FROM races ORDER BY day").fetchall() if _table_exists(c, "races") else []
+    upcoming = [_race_out(r) for r in races if r["day"] >= today.isoformat() and r["status"] == "geplant"]
+    past_or_off = [_race_out(r) for r in races if not (r["day"] >= today.isoformat() and r["status"] == "geplant")]
+    return {
+        "heute": today.isoformat(),
+        "wochentag": WEEKDAYS[today.weekday()],
+        "plan": plan["text"] if plan else None,
+        "plan_stand": plan["created_at"] if plan else None,
+        "naechste_wettkaempfe": upcoming,
+        "weitere_wettkaempfe": past_or_off,
+        "hinweis": None if plan else "Noch kein Plan hinterlegt (set_plan).",
+    }
+
+
+def set_plan(text: str, db_file=None) -> dict:
+    if not (text or "").strip():
+        raise ValueError("Plan darf nicht leer sein")
+    with connect_rw(db_file) as c:
+        cur = c.execute("INSERT INTO coach_plan(created_at, text) VALUES(?,?)", (_now_utc(), text.strip()[:20000]))
+        n = c.execute("SELECT COUNT(*) FROM coach_plan").fetchone()[0]
+    return {"id": cur.lastrowid, "version": n, "zeichen": len(text.strip())}
+
+
+def set_race(day: str, name: str, sport: str = None, distance_km: float = None, priority: str = None,
+             status: str = "geplant", note: str = None, race_id: int = None, db_file=None) -> dict:
+    d = date.fromisoformat(day[:10]).isoformat()
+    status = (status or "geplant").strip().lower()
+    if status not in RACE_STATUS:
+        raise ValueError(f"Status muss einer von {', '.join(RACE_STATUS)} sein")
+    if not (name or "").strip():
+        raise ValueError("Name fehlt")
+    prio = (priority or "").strip().upper() or None
+    vals = (d, name.strip(), sport, distance_km, prio, status, note, _now_utc())
+    with connect_rw(db_file) as c:
+        if race_id:
+            n = c.execute("UPDATE races SET day=?, name=?, sport=?, distance_km=?, priority=?, status=?, note=?, "
+                          "updated_at=? WHERE id=?", vals + (int(race_id),)).rowcount
+            if not n:
+                raise ValueError(f"Wettkampf {race_id} nicht gefunden")
+            rid = int(race_id)
+        else:
+            rid = c.execute("INSERT INTO races(day, name, sport, distance_km, priority, status, note, updated_at) "
+                            "VALUES(?,?,?,?,?,?,?,?)", vals).lastrowid
+        row = c.execute("SELECT * FROM races WHERE id=?", (rid,)).fetchone()
+    return _race_out(row)
+
+
+def delete_race(race_id: int, db_file=None) -> dict:
+    with connect_rw(db_file) as c:
+        n = c.execute("DELETE FROM races WHERE id=?", (int(race_id),)).rowcount
+    if not n:
+        raise ValueError(f"Wettkampf {race_id} nicht gefunden")
+    return {"geloescht": int(race_id)}
+
+
+def pending_reports(days: int = 2, db_file=None) -> dict:
+    """Einheiten der letzten Tage ohne Trainingsbericht, dazu ob Morgen-/Abendbericht heute fehlt."""
+    today = date.today()
+    start = (today - timedelta(days=max(1, int(days)) - 1)).isoformat()
+    with connect(db_file) as c:
+        acts = c.execute(
+            "SELECT a.activity_id, a.start_local, a.name, a.type_key, s.sport AS fit_sport, "
+            "s.activity_id IS NOT NULL AS ausgewertet FROM activities a "
+            "LEFT JOIN fit_sessions s USING(activity_id) "
+            "LEFT JOIN coach_reports r ON r.activity_id = a.activity_id "
+            "WHERE a.start_local >= ? AND r.id IS NULL ORDER BY a.start_local", (start,)).fetchall()
+        done = {r[0] for r in c.execute("SELECT kind FROM coach_reports WHERE day=? AND activity_id IS NULL",
+                                        (today.isoformat(),))}
+        last_sync = c.execute("SELECT started_at, finished_at, status, message FROM sync_log "
+                              "ORDER BY id DESC LIMIT 1").fetchone()
+    offen = []
+    for a in acts:
+        group = sports.group(a["type_key"], a["fit_sport"])
+        if group == "kein_sport":
+            continue
+        offen.append({"activity_id": a["activity_id"], "start": a["start_local"], "name": a["name"],
+                      "sport_gruppe": group, "ausgewertet": bool(a["ausgewertet"])})
+    return {
+        "heute": today.isoformat(),
+        "einheiten_ohne_bericht": offen,
+        "morgenbericht_fehlt": "morgen" not in done,
+        "abendbericht_fehlt": "abend" not in done,
+        "letzter_sync": dict(last_sync) if last_sync else None,
+        "hinweis": "Einheiten mit ausgewertet=false haben noch keine FIT-Auswertung; ggf. sync_now abwarten.",
+    }
+
+
+def save_report(kind: str, summary: str, activity_id: int = None, day: str = None, db_file=None) -> dict:
+    kind = (kind or "").strip().lower()
+    if kind not in REPORT_KINDS:
+        raise ValueError(f"Art muss eine von {', '.join(REPORT_KINDS)} sein")
+    if kind == "training" and not activity_id:
+        raise ValueError("Trainingsbericht braucht activity_id")
+    d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
+    with connect_rw(db_file) as c:
+        if activity_id:
+            row = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
+            if not row:
+                raise ValueError(f"Aktivität {activity_id} nicht gefunden")
+            d = (row["start_local"] or d)[:10]
+            if c.execute("SELECT 1 FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone():
+                return {"hinweis": f"Für Aktivität {activity_id} gibt es schon einen Bericht", "doppelt": True}
+        rid = c.execute("INSERT INTO coach_reports(kind, day, activity_id, created_at, summary) VALUES(?,?,?,?,?)",
+                        (kind, d, int(activity_id) if activity_id else None, _now_utc(),
+                         (summary or "").strip()[:4000])).lastrowid
+    return {"id": rid, "art": kind, "tag": d, "activity_id": activity_id}
+
+
+def list_reports(days: int = 14, kind: str = None, db_file=None) -> list:
+    start = (date.today() - timedelta(days=max(1, int(days)) - 1)).isoformat()
+    sql = "SELECT id, kind, day, activity_id, created_at, summary FROM coach_reports WHERE day >= ?"
+    params = [start]
+    if kind:
+        sql += " AND kind = ?"
+        params.append(kind.strip().lower())
+    with connect(db_file) as c:
+        if not _table_exists(c, "coach_reports"):
+            return []
+        rows = c.execute(sql + " ORDER BY day DESC, id DESC", params).fetchall()
+    return [_clean({"id": r["id"], "art": r["kind"], "tag": r["day"], "activity_id": r["activity_id"],
+                    "erstellt": r["created_at"], "zusammenfassung": r["summary"]}) for r in rows]
 
 
 # --- Freie Abfrage ------------------------------------------------------------

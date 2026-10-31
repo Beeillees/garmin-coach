@@ -3,16 +3,19 @@
 import asyncio
 import json
 import logging
+import os
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from garminconnect import Garmin
 
 import fit_store
+import scheduler
 from db import Store
-from sync import run_sync
+from sync import quick_check, run_sync
 
 OPTIONS_FILE = Path("/data/options.json")
 TOKEN_DIR = Path("/data/garmin_tokens")
@@ -20,8 +23,10 @@ DATA_DIR = Path("/share/garmin-coach")
 DB_FILE = DATA_DIR / "garmin.db"
 MFA_FILE = DATA_DIR / "mfa_code.txt"
 BACKFILL_MARKER = Path("/data/backfill_done")
-# Einmaliges Nachladen der Historie von Laktatschwelle, Wettkampfprognosen usw. (ab 0.4.0)
-HISTORY_MARKER = Path("/data/history_snapshots_done")
+# Einmaliges Nachladen der Historie von Laktatschwelle, Wettkampfprognosen usw.
+# v2 ab 0.5.0: in 0.4.0 scheiterte der Abruf an Garmins 1-Jahres-Grenze, die Markierung wurde
+# trotzdem gesetzt. Deshalb neuer Name, und gesetzt wird sie nur, wenn alle Abrufe geklappt haben.
+HISTORY_MARKER = Path("/data/history_snapshots_v2_done")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -114,28 +119,67 @@ def sync_worker(opts: dict) -> None:
         BACKFILL_MARKER.write_text(str(backfill))
         fit_store.process_pending(store, DATA_DIR)
 
-    interval = int(opts.get("sync_interval_hours") or 6) * 3600
     days_back = int(opts.get("days_back") or 30)
-    while True:
+    schedule = scheduler.Schedule(opts)
+    log.info("Zeitplan: %s", schedule.describe())
+    scheduler.worker_ready.set()
+
+    def full_sync() -> dict:
+        nonlocal g
         history_days = 0
         if not HISTORY_MARKER.exists():
             history_days = max(int(opts.get("backfill_days") or 0), 730)
             log.info("Lade einmalig die Historie von Laktatschwelle, Prognosen usw. (%d Tage)", history_days)
         try:
-            run_sync(g, store, DATA_DIR, days_back, history_days)
-            if history_days:
+            result = run_sync(g, store, DATA_DIR, days_back, history_days)
+            if result.get("verlauf_ok"):
                 HISTORY_MARKER.write_text(str(history_days))
+            elif history_days:
+                log.warning("Verläufe nicht vollständig geladen, nächster voller Sync versucht es erneut")
+            return result
         except Exception as e:
             log.error("Sync fehlgeschlagen: %s", e)
             try:
                 g = login(opts)  # Token abgelaufen o. Ä.: neu anmelden
             except Exception as e2:
                 log.error("Erneuter Login fehlgeschlagen: %s", e2)
+            return {"fehler": str(e)}
+
+    def quick() -> dict:
+        nonlocal g
         try:
-            fit_store.process_pending(store, DATA_DIR)
+            return quick_check(g, store, DATA_DIR)
         except Exception as e:
-            log.error("FIT-Auswertung fehlgeschlagen: %s", e)
-        time.sleep(interval)
+            log.warning("Schnellprüfung fehlgeschlagen: %s", e)
+            try:
+                g = login(opts)
+            except Exception as e2:
+                log.error("Erneuter Login fehlgeschlagen: %s", e2)
+            return {"fehler": str(e)}
+
+    def run(kind: str) -> dict:
+        scheduler.set_busy(True)
+        try:
+            result = full_sync() if kind == "voll" else quick()
+            if "fehler" not in result and (kind == "voll" or result.get("neue_fit")):
+                try:
+                    fit_store.process_pending(store, DATA_DIR)
+                except Exception as e:
+                    log.error("FIT-Auswertung fehlgeschlagen: %s", e)
+            return result
+        finally:
+            scheduler.set_busy(False)
+
+    run("voll")  # beim Start einmal alles holen
+    while True:
+        due, kind = schedule.next_run(datetime.now())
+        log.debug("Nächster Lauf (%s) um %s", kind, due.strftime("%H:%M"))
+        req = scheduler.wait_for_next((due - datetime.now()).total_seconds())
+        if req is not None:
+            log.info("Sync auf Anfrage (%s)", req.kind)
+            scheduler.finish(req, run(req.kind))
+        elif datetime.now() >= due:
+            run(kind)
 
 
 def _thread(name: str, target, *args) -> None:
@@ -148,6 +192,9 @@ def _thread(name: str, target, *args) -> None:
 
 
 def main() -> None:
+    # Lokale Zeit für den Zeitplan; Home Assistant setzt TZ normalerweise selbst.
+    os.environ.setdefault("TZ", "Europe/Berlin")
+    time.tzset()
     opts = load_options()
     apply_log_level(opts)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -155,6 +202,9 @@ def main() -> None:
     # Datenbank-Schema anlegen, bevor der MCP-Server darauf zugreift
     store = Store(DB_FILE)
     fit_store.init(store)
+    n = store.close_orphaned_syncs()
+    if n:
+        log.info("%d unterbrochene Sync-Läufe als 'abgebrochen' markiert", n)
     store.conn.close()
 
     _thread("sync", sync_worker, opts)

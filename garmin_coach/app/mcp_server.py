@@ -1,9 +1,11 @@
 """MCP-Server: macht garmin.db für Claude zugänglich.
 
-Bis auf die Notizen ist alles nur lesend. Jeder Werkzeugaufruf wird mit Dauer,
+Schreibend sind nur Notizen, Trainingsplan, Wettkämpfe und Coach-Berichte; Garmin selbst wird
+nie verändert. Jeder Werkzeugaufruf wird mit Dauer,
 Ergebnisgröße und Status protokolliert, im Add-on-Protokoll und in der Tabelle mcp_log.
 """
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -17,12 +19,13 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 import queries
+import scheduler
 
 log = logging.getLogger("garmin_coach.mcp")
 
 PORT = 8099
 PATH = "/mcp"
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -52,6 +55,10 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   haut_temp_abweichung positiv, stress_schlaf hoch.
 - Notizen (add_note) halten Krankheit, Verletzung, Reise, Stress fest und erscheinen bei den Tagen.
 - Tageswerte stammen aus Garmin Connect, Einheiten aus den Original-FIT-Dateien.
+- Coaching: get_plan liefert Brunos Trainingsplan und Wettkämpfe. Neue Einheiten ohne Bericht zeigt
+  pending_reports; nach einem Bericht save_report aufrufen, damit nichts doppelt ausgewertet wird.
+- Aktuelle Daten: sync_now (schnell = nur neue Aktivitäten, voll = alles). Sonst läuft der Sync
+  zu festen Zeiten plus Schnellprüfung tagsüber.
 """
 
 server = MCPServer(name="garmin-coach", title="Garmin Coach", instructions=INSTRUCTIONS, version=VERSION)
@@ -235,7 +242,9 @@ def garmin_profile(source: str | None = None, day: str | None = None) -> dict:
     Ohne source: Liste der Quellen. Quellen: lactate_threshold, race_predictions, personal_records,
     heart_rate_zones, endurance_score, hill_score, scheduled_workouts, training_plans sowie die
     einmalig geladenen Verläufe lactate_threshold_history, race_predictions_history,
-    endurance_score_history. Rohdaten von Garmin (Tempo in m/s, Zeiten in s)."""
+    endurance_score_history (in Jahresstücken). Rohdaten von Garmin (Zeiten in s).
+    lactate_threshold hat zusätzlich 'auswertung' mit Schwellen-HF, -Pace und FTP; Achtung, im
+    Rohwert steht das Tempo in 0,1 m/s."""
     return _call("garmin_profile", queries.garmin_profile, source=source, day=day)
 
 
@@ -261,6 +270,82 @@ def delete_note(note_id: int) -> dict:
     return _call("delete_note", queries.delete_note, note_id=note_id)
 
 
+# --- Coaching -----------------------------------------------------------------
+
+@server.tool(annotations=READ_ONLY)
+def get_plan() -> dict:
+    """Brunos aktueller Trainingsplan (Text, neueste Version), heutiger Wochentag und Wettkämpfe
+    mit Abstand in Tagen/Wochen. Vor jedem Morgen-/Abendbericht lesen."""
+    return _call("get_plan", queries.get_plan)
+
+
+@server.tool(annotations=WRITE)
+def set_plan(text: str) -> dict:
+    """Trainingsplan als Text speichern (Markdown). Ersetzt den bisherigen Plan; alte Versionen
+    bleiben in der Tabelle coach_plan erhalten. Immer den vollständigen Plan schicken, nicht nur
+    die Änderung. Nur auf Brunos Wunsch oder nach seiner Bestätigung."""
+    return _call("set_plan", queries.set_plan, text=text)
+
+
+@server.tool(annotations=WRITE)
+def set_race(day: str, name: str, sport: str | None = None, distance_km: float | None = None,
+             priority: str | None = None, status: str = "geplant", note: str | None = None,
+             race_id: int | None = None) -> dict:
+    """Wettkampf anlegen oder (mit race_id) ändern. day im Format YYYY-MM-DD.
+    priority: A (Hauptziel), B, C. status: geplant, abgesagt, erledigt."""
+    return _call("set_race", queries.set_race, day=day, name=name, sport=sport, distance_km=distance_km,
+                 priority=priority, status=status, note=note, race_id=race_id)
+
+
+@server.tool(annotations=DELETE)
+def delete_race(race_id: int) -> dict:
+    """Wettkampf löschen (bei Fehleintrag). Abgesagte Rennen lieber mit status=abgesagt behalten."""
+    return _call("delete_race", queries.delete_race, race_id=race_id)
+
+
+@server.tool(annotations=READ_ONLY)
+def pending_reports(days: int = 2) -> dict:
+    """Was ist noch nicht besprochen: Einheiten der letzten `days` Tage ohne Trainingsbericht
+    (Atemübungen ausgenommen), ob Morgen- und Abendbericht für heute fehlen, letzter Sync."""
+    return _call("pending_reports", queries.pending_reports, days=days)
+
+
+@server.tool(annotations=WRITE)
+def save_report(kind: str, summary: str, activity_id: int | None = None, day: str | None = None) -> dict:
+    """Bericht als erledigt vermerken. kind: morgen, training (braucht activity_id) oder abend.
+    summary: 2–4 Sätze Kern des Berichts (Empfehlung, Bewertung), damit spätere Berichte darauf
+    aufbauen können. Pro Aktivität nur ein Trainingsbericht."""
+    return _call("save_report", queries.save_report, kind=kind, summary=summary, activity_id=activity_id,
+                 day=day)
+
+
+@server.tool(annotations=READ_ONLY)
+def list_reports(days: int = 14, kind: str | None = None) -> list | dict:
+    """Frühere Coach-Berichte (Kurzfassung) der letzten `days` Tage, optional nur eine Art."""
+    return _call("list_reports", queries.list_reports, days=days, kind=kind)
+
+
+def _sync_now(mode: str) -> dict:
+    mode = (mode or "schnell").strip().lower()
+    if mode not in ("schnell", "voll"):
+        raise ValueError("mode muss 'schnell' oder 'voll' sein")
+    if not scheduler.worker_ready.is_set():
+        raise RuntimeError("Sammler läuft noch nicht (Anmeldung bei Garmin oder Backfill läuft)")
+    result = scheduler.request(mode, timeout_s=150 if mode == "voll" else 90)
+    if result is None:
+        return {"status": "läuft noch", "hinweis": "Ergebnis kam nicht rechtzeitig; data_overview zeigt den Stand."}
+    return {"status": "fehler" if "fehler" in result else "ok", **result}
+
+
+@server.tool(annotations=WRITE)
+async def sync_now(mode: str = "schnell") -> dict:
+    """Daten sofort von Garmin holen und warten, bis sie da sind.
+    mode=schnell: nur neue Aktivitäten (plus FIT-Auswertung und Tageswerte von heute), wenige Sekunden.
+    mode=voll: alle Tageswerte der letzten Tage, Aktivitäten und Profil-Schnappschüsse, ca. 1 min.
+    Nur nutzen, wenn eine erwartete Einheit oder heutige Werte fehlen."""
+    return await asyncio.to_thread(_call, "sync_now", _sync_now, mode=mode)
+
+
 @server.tool(annotations=READ_ONLY)
 def describe_schema() -> dict:
     """Tabellen und Spalten der Datenbank, als Grundlage für query_sql."""
@@ -273,7 +358,8 @@ def query_sql(sql: str) -> dict:
 
     Wichtige Tabellen: fit_sessions (pro Einheit), fit_laps (pro Runde), fit_records
     (Sekundenwerte, t = Sekunden seit Start), activities (data = Garmin-JSON), daily_raw
-    (Tageswerte als JSON, mit json_extract auslesbar), garmin_snapshots, notes, mcp_log.
+    (Tageswerte als JSON, mit json_extract auslesbar), garmin_snapshots, notes, coach_plan, races,
+    coach_reports, sync_log, mcp_log.
     Funktion sport_gruppe(type_key, fit_sport). Erst describe_schema aufrufen, wenn Spalten unklar sind.
     """
     return _call("query_sql", queries.run_sql, sql=sql)

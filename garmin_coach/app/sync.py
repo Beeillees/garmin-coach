@@ -111,12 +111,13 @@ def _extract_fit(zip_bytes: bytes, target: Path) -> bool:
         return True
 
 
-def sync_activities(g: Garmin, store: Store, data_dir: Path, days_back: int) -> int:
+def sync_activities(g: Garmin, store: Store, data_dir: Path, days_back: int, acts: list = None) -> int:
     today = date.today()
     start = today - timedelta(days=days_back - 1)
-    log.info("Aktivitäten: suche von %s bis %s ...", start, today)
-    acts = g.get_activities_by_date(start.isoformat(), today.isoformat())
-    log.info("Aktivitäten: %d gefunden", len(acts))
+    if acts is None:
+        log.info("Aktivitäten: suche von %s bis %s ...", start, today)
+        acts = g.get_activities_by_date(start.isoformat(), today.isoformat())
+        log.info("Aktivitäten: %d gefunden", len(acts))
     new_fits = 0
     for act in acts:
         aid = int(act["activityId"])
@@ -167,13 +168,32 @@ def _snapshot_sources(today: date) -> dict:
     }
 
 
-def _history_sources(start: date, end: date) -> dict:
-    s, e = start.isoformat(), end.isoformat()
-    return {
-        "lactate_threshold_history": lambda g: g.get_lactate_threshold(latest=False, start_date=s, end_date=e),
-        "race_predictions_history": lambda g: g.get_race_predictions(s, e, "daily"),
-        "endurance_score_history": lambda g: g.get_endurance_score(s, e, "weekly"),
-    }
+# Garmin erlaubt bei Verläufen höchstens ~1 Jahr pro Abfrage (Laktatschwelle und Prognosen 366 Tage,
+# Endurance-Score 400 Tage). Längere Zeiträume werden deshalb in Jahresstücke geteilt.
+HISTORY_CHUNK_DAYS = 365
+
+
+def _chunks(start: date, end: date, size: int = HISTORY_CHUNK_DAYS):
+    """Zeitraum in Stücke von höchstens `size` Tagen (beide Enden inklusive), älteste zuerst."""
+    s = start
+    while s <= end:
+        e = min(s + timedelta(days=size - 1), end)
+        yield s, e
+        s = e + timedelta(days=1)
+
+
+def _history_sources(start: date, end: date) -> list:
+    """(Quelle, Stück-Beginn, Abruf) je Jahresstück. Gespeichert wird unter day = Stück-Beginn."""
+    out = []
+    for cs, ce in _chunks(start, end):
+        s, e = cs.isoformat(), ce.isoformat()
+        out += [
+            ("lactate_threshold_history", s,
+             lambda g, s=s, e=e: g.get_lactate_threshold(latest=False, start_date=s, end_date=e)),
+            ("race_predictions_history", s, lambda g, s=s, e=e: g.get_race_predictions(s, e, "daily")),
+            ("endurance_score_history", s, lambda g, s=s, e=e: g.get_endurance_score(s, e, "weekly")),
+        ]
+    return out
 
 
 def _size(data) -> str:
@@ -184,35 +204,68 @@ def _size(data) -> str:
     return "leer" if data is None else "ok"
 
 
-def sync_snapshots(g: Garmin, store: Store, history_days: int = 0) -> int:
-    """Schnappschüsse von heute; mit history_days zusätzlich einmal die Historie."""
+def sync_snapshots(g: Garmin, store: Store, history_days: int = 0) -> tuple[int, int]:
+    """Schnappschüsse von heute; mit history_days zusätzlich einmal die Historie.
+
+    Rückgabe: (gespeichert, fehlgeschlagene Verlaufs-Abrufe)."""
     today = date.today()
-    sources = dict(_snapshot_sources(today))
+    jobs = [(src, today.isoformat(), fn) for src, fn in _snapshot_sources(today).items()]
     if history_days > 0:
-        sources.update(_history_sources(today - timedelta(days=history_days), today))
-    saved = 0
-    for source, fn in sources.items():
+        jobs += _history_sources(today - timedelta(days=history_days - 1), today)
+    saved = history_failed = 0
+    for source, day, fn in jobs:
         try:
             data = fn(g)
-            store.save_snapshot(today.isoformat(), source, data)
+            store.save_snapshot(day, source, data)
             saved += 1
-            log.info("Schnappschuss %s: %s", source, _size(data))
+            log.info("Schnappschuss %s%s: %s", source, "" if day == today.isoformat() else f" ab {day}", _size(data))
         except Exception as e:  # einzelne Quelle darf den Rest nicht stoppen
-            log.warning("Schnappschuss %s fehlgeschlagen: %s", source, e)
+            log.warning("Schnappschuss %s ab %s fehlgeschlagen: %s", source, day, e)
+            if source.endswith("_history"):
+                history_failed += 1
         time.sleep(PAUSE_S)
-    return saved
+    return saved, history_failed
 
 
-def run_sync(g: Garmin, store: Store, data_dir: Path, days_back: int, history_days: int = 0) -> str:
+def run_sync(g: Garmin, store: Store, data_dir: Path, days_back: int, history_days: int = 0) -> dict:
+    """Voller Sync. Rückgabe: {'meldung', 'neue_fit', 'verlauf_ok'}."""
     log_id = store.log_start()
     try:
         n_daily = sync_daily(g, store, days_back)
         n_fit = sync_activities(g, store, data_dir, days_back)
-        n_snap = sync_snapshots(g, store, history_days)
+        n_snap, hist_failed = sync_snapshots(g, store, history_days)
         msg = f"{n_daily} Tageswerte, {n_fit} neue FIT-Dateien, {n_snap} Schnappschüsse"
+        if history_days:
+            msg += ", Verläufe vollständig" if not hist_failed else f", {hist_failed} Verlaufs-Abrufe fehlgeschlagen"
         store.log_finish(log_id, "ok", msg)
         log.info("Sync fertig: %s", msg)
-        return msg
+        return {"meldung": msg, "neue_fit": n_fit, "verlauf_ok": history_days > 0 and hist_failed == 0}
+    except Exception as e:
+        store.log_finish(log_id, "error", repr(e))
+        raise
+
+
+def quick_check(g: Garmin, store: Store, data_dir: Path) -> dict:
+    """Schnelle Prüfung auf neue Aktivitäten (gestern und heute), ein einziger Abruf.
+
+    Nur wenn etwas Neues da ist: FIT-Dateien holen und die Tageswerte von heute auffrischen
+    (Trainingsbereitschaft nach dem Training, Last). Ins Sync-Protokoll kommt nur ein Eintrag,
+    wenn es etwas Neues gab."""
+    today = date.today()
+    acts = g.get_activities_by_date((today - timedelta(days=1)).isoformat(), today.isoformat())
+    # Neu = noch gar nicht in der Datenbank. Fehlgeschlagene FIT-Downloads holt der nächste volle Sync nach.
+    new = [a for a in acts if not store.has_activity(int(a["activityId"]))]
+    if not new:
+        log.debug("Schnellprüfung: nichts Neues (%d Aktivitäten)", len(acts))
+        return {"meldung": "keine neuen Aktivitäten", "neue_fit": 0}
+    log_id = store.log_start(kind="schnell")
+    try:
+        n_fit = sync_activities(g, store, data_dir, 2, acts=acts)
+        n_daily = sync_daily(g, store, 1)
+        msg = f"Schnellprüfung: {len(new)} neue Aktivität(en), {n_fit} FIT-Dateien, {n_daily} Tageswerte"
+        store.log_finish(log_id, "ok", msg)
+        log.info(msg)
+        return {"meldung": msg, "neue_fit": n_fit}
     except Exception as e:
         store.log_finish(log_id, "error", repr(e))
         raise
