@@ -1,5 +1,6 @@
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+# Feste Basis mit Python. Neuere Supervisor-Versionen setzen BUILD_FROM auf ein
+# Alpine-Image ohne Python, deshalb wird das Image hier direkt angegeben.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
