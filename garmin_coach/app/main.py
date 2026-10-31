@@ -23,6 +23,16 @@ DATA_DIR = Path("/share/garmin-coach")
 DB_FILE = DATA_DIR / "garmin.db"
 MFA_FILE = DATA_DIR / "mfa_code.txt"
 BACKFILL_MARKER = Path("/data/backfill_done")
+
+
+def _marker_days(path: Path) -> int:
+    """Zahl der Tage, für die der Backfill schon lief (0 = noch nie)."""
+    try:
+        return int(path.read_text().strip() or 1)
+    except FileNotFoundError:
+        return 0
+    except ValueError:
+        return 1
 # Einmaliges Nachladen der Historie von Laktatschwelle, Wettkampfprognosen usw.
 # v2 ab 0.5.0: in 0.4.0 scheiterte der Abruf an Garmins 1-Jahres-Grenze, die Markierung wurde
 # trotzdem gesetzt. Deshalb neuer Name, und gesetzt wird sie nur, wenn alle Abrufe geklappt haben.
@@ -113,7 +123,7 @@ def sync_worker(opts: dict) -> None:
 
     # Einmaliges Nachladen alter Tageswerte und Aktivitäten
     backfill = int(opts.get("backfill_days") or 0)
-    if backfill > 0 and not BACKFILL_MARKER.exists():
+    if backfill > 0 and _marker_days(BACKFILL_MARKER) < backfill:
         log.info("Starte Backfill über %d Tage, das kann eine Weile dauern ...", backfill)
         run_sync(g, store, DATA_DIR, backfill)
         BACKFILL_MARKER.write_text(str(backfill))
@@ -127,8 +137,9 @@ def sync_worker(opts: dict) -> None:
     def full_sync() -> dict:
         nonlocal g
         history_days = 0
-        if not HISTORY_MARKER.exists():
-            history_days = max(int(opts.get("backfill_days") or 0), 730)
+        wanted = max(int(opts.get("backfill_days") or 0), 730)
+        if _marker_days(HISTORY_MARKER) < wanted:
+            history_days = wanted
             log.info("Lade einmalig die Historie von Laktatschwelle, Prognosen usw. (%d Tage)", history_days)
         try:
             result = run_sync(g, store, DATA_DIR, days_back, history_days)

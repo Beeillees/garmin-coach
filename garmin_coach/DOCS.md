@@ -101,7 +101,7 @@ ist normal.
 | `email`, `password` | Garmin-Connect-Zugang. Nach dem ersten Login werden Tokens gespeichert. |
 | `mfa_code` | Nur falls Garmin beim ersten Login einen Code verlangt. |
 | `days_back` | Wie viele Tage bei jedem Sync geprüft werden (Standard 30). |
-| `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
+| `backfill_days` | Nachladen alter Daten, z. B. `730` für zwei Jahre, `1500` für vier. Läuft einmal pro Wert; wird die Zahl später erhöht, werden nur die älteren Tage nachgeladen. |
 | `sync_times` | Uhrzeiten für den vollen Sync in lokaler Zeit (Standard `05:15`, `19:45`). |
 | `activity_check_minutes` | Abstand der Schnellprüfung auf neue Aktivitäten in Minuten (Standard 20, `0` = aus). |
 | `activity_check_window` | Zeitfenster der Schnellprüfung (Standard `06:00-22:00`). |

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+- **Backfill läuft erneut, wenn `backfill_days` größer wird.** Bisher lief der Backfill nur einmal
+  und ignorierte spätere Änderungen. Jetzt merkt sich das Add-on die geladene Tiefe: Wer z. B.
+  von `730` auf `1500` erhöht, bekommt die älteren Tage nachgeladen (bereits vorhandene Tage und
+  FIT-Dateien werden übersprungen). Das gilt auch für die Verläufe von Laktatschwelle, Prognosen usw.
+
 ## 0.6.0
 Trainingstagebuch und Rückblicke: Was Garmin nicht misst, kommt jetzt mit in die Datenbank, und der
 Coach kann Wochen und Monate zusammenfassen.
