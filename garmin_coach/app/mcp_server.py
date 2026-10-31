@@ -25,7 +25,7 @@ log = logging.getLogger("garmin_coach.mcp")
 
 PORT = 8099
 PATH = "/mcp"
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -236,16 +236,18 @@ def weekly_summary(weeks: int = 12, sport: str | None = None) -> dict:
 
 
 @server.tool(annotations=READ_ONLY)
-def garmin_profile(source: str | None = None, day: str | None = None) -> dict:
+def garmin_profile(source: str | None = None, day: str | None = None, kompakt: bool = True) -> dict:
     """Leistungsprofil aus Garmin Connect als Schnappschuss (einer pro Tag, daraus entsteht die Historie).
 
     Ohne source: Liste der Quellen. Quellen: lactate_threshold, race_predictions, personal_records,
     heart_rate_zones, endurance_score, hill_score, scheduled_workouts, training_plans sowie die
     einmalig geladenen Verläufe lactate_threshold_history, race_predictions_history,
-    endurance_score_history (in Jahresstücken). Rohdaten von Garmin (Zeiten in s).
+    endurance_score_history. Verläufe kommen standardmäßig verdichtet (Laktatschwelle nur Änderungen
+    mit Pace, Prognosen ein Wert pro Woche); kompakt=False liefert die Rohdaten (sehr groß).
+    Rohdaten von Garmin (Zeiten in s).
     lactate_threshold hat zusätzlich 'auswertung' mit Schwellen-HF, -Pace und FTP; Achtung, im
     Rohwert steht das Tempo in 0,1 m/s."""
-    return _call("garmin_profile", queries.garmin_profile, source=source, day=day)
+    return _call("garmin_profile", queries.garmin_profile, source=source, day=day, kompakt=kompakt)
 
 
 @server.tool(annotations=READ_ONLY)

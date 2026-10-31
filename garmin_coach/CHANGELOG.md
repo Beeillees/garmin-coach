@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+- `garmin_profile`: Verläufe kommen verdichtet statt als Rohdaten (der Laktatschwellen-Verlauf war
+  über 170.000 Zeichen groß). Laktatschwelle nur an Änderungen, mit Pace; Wettkampfprognosen ein
+  Wert pro Woche. `kompakt=False` liefert weiterhin alles.
+
 ## 0.5.0
 Grundlage für den täglichen Coach: feste Sync-Zeiten, schnelle Erkennung neuer Einheiten,
 Trainingsplan und Berichte in der Datenbank.

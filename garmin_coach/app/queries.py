@@ -855,7 +855,42 @@ def _lactate_summary(data) -> dict:
     })
 
 
-def garmin_profile(source: str = None, day: str = None, db_file=None) -> dict:
+def _history_compact(source: str, chunks: list) -> dict:
+    """Verläufe auf das Wesentliche kürzen: Laktatschwelle nur an Änderungen (mit Pace),
+    Wettkampfprognosen ein Wert pro Woche. Rohdaten gibt es mit kompakt=False."""
+    if source == "lactate_threshold_history":
+        out = {}
+        for key, conv in (("heart_rate", lambda v: int(v)), ("speed", lambda v: pace(v * 10)),
+                          ("power", lambda v: int(v))):
+            last, points = None, []
+            for ch in chunks:
+                for e in (ch.get(key) or []) if isinstance(ch, dict) else []:
+                    v = e.get("value")
+                    if v is None:
+                        continue
+                    cv = conv(v)
+                    if cv != last:
+                        points.append({"ab": (e.get("from") or "")[:10], "wert": cv})
+                        last = cv
+            out[{"heart_rate": "schwelle_hf", "speed": "schwelle_pace", "power": "ftp_watt"}[key]] = points
+        out["hinweis"] = "Nur Änderungen. Pace aus Garmins 0,1-m/s-Rohwert umgerechnet."
+        return out
+    if source == "race_predictions_history":
+        weekly = {}
+        for ch in chunks:
+            for e in ch if isinstance(ch, list) else []:
+                d = (e.get("calendarDate") or e.get("fromCalendarDate") or "")[:10]
+                if not d:
+                    continue
+                y, w, _ = date.fromisoformat(d).isocalendar()
+                weekly[f"{y}-W{w:02d}"] = {k: v for k, v in e.items() if k.startswith("time") or k == "calendarDate"}
+        if weekly:
+            return {"pro_woche": [{"woche": k, **v} for k, v in sorted(weekly.items())],
+                    "hinweis": "Letzter Wert je Woche, Zeiten in s."}
+    return {"stuecke": chunks}
+
+
+def garmin_profile(source: str = None, day: str = None, kompakt: bool = True, db_file=None) -> dict:
     with connect(db_file) as c:
         if not _table_exists(c, "garmin_snapshots"):
             return {"hinweis": "Noch keine Schnappschüsse. Sie entstehen beim nächsten Sync."}
@@ -871,6 +906,8 @@ def garmin_profile(source: str = None, day: str = None, db_file=None) -> dict:
                              "ORDER BY day", (source,)).fetchall()
             if not rows:
                 raise ValueError(f"Kein Verlauf für {source}")
+            if kompakt:
+                return {"quelle": source, **_history_compact(source, [_loads(r["data"]) for r in rows])}
             return {"quelle": source, "stuecke": [{"ab": r["day"], "abgerufen": r["fetched_at"],
                                                    "daten": _loads(r["data"])} for r in rows]}
         if day:
