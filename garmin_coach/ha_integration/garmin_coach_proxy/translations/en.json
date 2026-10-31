@@ -1,0 +1,8 @@
+{
+  "config": {
+    "abort": {
+      "addon_missing": "The Garmin Coach add-on has not provided its settings yet. Start the add-on and try again.",
+      "single_instance_allowed": "Garmin Coach MCP is already set up."
+    }
+  }
+}

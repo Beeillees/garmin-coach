@@ -30,6 +30,12 @@ Alles landet in `/share/garmin-coach/` auf deinem Home Assistant:
 | `days_back` | Wie viele Tage bei jedem Sync geprüft werden (Standard 30). |
 | `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
 | `sync_interval_hours` | Abstand zwischen zwei Syncs (Standard 6 Stunden). |
+| `mcp_enabled` | MCP-Server für Claude an/aus (Standard: an). |
+
+## Claude anbinden
+
+Siehe Reiter **Dokumentation** im Add-on: Nach dem Update auf 0.3.0 einmal Home Assistant
+neu starten, dann steht die Connector-URL im Protokoll.
 
 ## MFA
 
@@ -42,7 +48,7 @@ in die Datei `/share/garmin-coach/mfa_code.txt` schreiben.
 1. ✅ Sammler: Tageswerte und FIT-Dateien lokal speichern
 2. ✅ FIT-Auswertung: Gesamtwerte, Runden, Sekundenwerte, Drift, Effizienz, Zieltreffer, Pulserholung
 3. Historie aus dem Garmin-Datenexport importieren
-4. MCP-Server für Claude
+4. ✅ MCP-Server für Claude (über HA-Webhook, ohne neuen Port)
 5. Trainings in den Garmin-Kalender schreiben
 6. Täglicher Coach-Bericht
 7. Dashboard in Home Assistant

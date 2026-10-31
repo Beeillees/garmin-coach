@@ -1,5 +1,5 @@
 name: Garmin Coach
-version: "0.2.0"
+version: "0.3.0"
 slug: garmin_coach
 description: Speichert und analysiert Garmin-Aktivitäten (FIT) und tägliche Health-Werte lokal in SQLite.
 url: https://github.com/Beeillees/garmin-coach
@@ -9,8 +9,10 @@ arch:
 init: false
 startup: application
 boot: auto
+homeassistant_api: true
 map:
   - share:rw
+  - homeassistant_config:rw
 options:
   email: ""
   password: ""
@@ -18,6 +20,7 @@ options:
   days_back: 30
   backfill_days: 0
   sync_interval_hours: 6
+  mcp_enabled: true
 schema:
   email: str
   password: password
@@ -25,3 +28,4 @@ schema:
   days_back: int(1,365)
   backfill_days: int(0,5000)
   sync_interval_hours: int(1,24)
+  mcp_enabled: bool

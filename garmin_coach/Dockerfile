@@ -10,6 +10,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install -r /app/requirements.txt
 
 COPY app/ /app/
+COPY ha_integration/ /app/ha_integration/
 WORKDIR /app
 
 CMD ["python", "-u", "/app/main.py"]

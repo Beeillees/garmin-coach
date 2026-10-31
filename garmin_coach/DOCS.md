@@ -46,6 +46,38 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `target_hit_pct`, `target_laps` | Anteil der Belastungsrunden im Zieltempo-Bereich eines geplanten Trainings |
 | `hr_recovery_60s` | Mittlerer Pulsabfall in den ersten 60 s der Trabpausen |
 
+## Claude anbinden (MCP)
+
+Ab Version 0.3.0 kann Claude deine Daten direkt abfragen, nur lesend.
+
+1. Add-on auf 0.3.0 aktualisieren und starten.
+2. Im Protokoll erscheint der Hinweis, Home Assistant **einmal komplett neu zu starten**
+   (Einstellungen → System → oben rechts → Neu starten). Das ist nötig, damit HA die
+   Integration "Garmin Coach MCP" lädt.
+3. Nach dem Neustart richtet das Add-on die Integration selbst ein. Nach spätestens zwei
+   Minuten steht im Protokoll die **URL für den Claude-Connector**:
+   `https://<deine-ha-adresse>/api/webhook/garmin_coach_...`
+4. Auf claude.ai unter **Anpassen → Konnektoren → + → Benutzerdefinierten Konnektor
+   hinzufügen** einen Connector "Garmin Coach" mit dieser URL anlegen und verbinden.
+
+Unter Einstellungen → Geräte & Dienste erscheint die Integration "Garmin Coach MCP".
+Die Warnung im HA-Protokoll, dass eine benutzerdefinierte Integration nicht getestet ist,
+ist normal.
+
+**Die URL ist geheim.** Wer sie kennt, kann deine Trainings- und Gesundheitsdaten lesen.
+
+### Werkzeuge für Claude
+
+| Werkzeug | Inhalt |
+|---|---|
+| `data_overview` | Datenstand, Zeiträume, Sportarten, letzter Sync |
+| `list_activities` | Einheiten mit Kernwerten, filterbar nach Zeitraum und Sportart |
+| `get_activity` | Alle Details einer Einheit inkl. Runden, Workout-Schritten, Bahnen, Sätzen |
+| `get_activity_timeseries` | Verläufe (z. B. Pulskurve) in wählbarer Auflösung |
+| `daily_metrics` | HRV, Ruhepuls, Schlaf, Body Battery, Stress, Bereitschaft, Trainingsstatus, VO2max |
+| `weekly_summary` | Wochenumfänge pro Sportart |
+| `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |
+
 ## Einstellungen
 
 | Option | Bedeutung |
@@ -55,6 +87,7 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `days_back` | Wie viele Tage bei jedem Sync geprüft werden (Standard 30). |
 | `backfill_days` | Einmaliges Nachladen alter Daten, z. B. `730` für zwei Jahre. Läuft nur einmal. |
 | `sync_interval_hours` | Abstand zwischen zwei Syncs (Standard 6 Stunden). |
+| `mcp_enabled` | MCP-Server für Claude an/aus (Standard: an). |
 
 ## MFA
 

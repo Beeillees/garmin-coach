@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+- **MCP-Server für Claude**: Claude kann jetzt direkt und nur lesend auf `garmin.db` zugreifen.
+  - Werkzeuge: `data_overview`, `list_activities`, `get_activity`, `get_activity_timeseries`,
+    `daily_metrics`, `weekly_summary`, `describe_schema`, `query_sql` (nur SELECT, schreibgeschützt)
+  - Antworten in lesbaren Einheiten (km, min/km, Minuten, Schritte/min)
+- **Weiterleitung über Home Assistant**: Das Add-on installiert die kleine Integration
+  "Garmin Coach MCP" und richtet sie nach einem HA-Neustart selbst ein. Der MCP-Server ist
+  dann über `https://<deine-ha-adresse>/api/webhook/<geheime-id>` erreichbar, ohne neuen Port.
+- Die fertige Connector-URL steht im Protokoll des Add-ons.
+- Sammler und MCP-Server laufen parallel; der MCP-Server funktioniert auch ohne Garmin-Login
+  mit den bereits gespeicherten Daten.
+- Neue Option `mcp_enabled` (Standard: an).
+- Protokoll zeigt jede Abfrage von Claude in einer Zeile.
+
 ## 0.2.0
 - **FIT-Auswertung**: Jede FIT-Datei wird automatisch ausgelesen, neue und bereits heruntergeladene.
 - Neue Tabellen in `garmin.db`:

@@ -1,8 +1,10 @@
-"""Einstiegspunkt des Add-ons: Login, erster Sync, dann Sync im festen Takt."""
+"""Einstiegspunkt des Add-ons: Sammler im Hintergrund, MCP-Server im Vordergrund."""
 
+import asyncio
 import json
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -71,10 +73,9 @@ def login(opts: dict) -> Garmin:
     return g
 
 
-def main() -> None:
-    opts = load_options()
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    store = Store(DB_FILE)
+def sync_worker(opts: dict) -> None:
+    """Sammler und FIT-Auswertung, läuft im Hintergrund-Thread."""
+    store = Store(DB_FILE)  # eigene Verbindung, SQLite-Verbindungen sind an ihren Thread gebunden
     fit_store.init(store)
 
     # Bereits vorhandene, noch nicht ausgewertete FIT-Dateien zuerst abarbeiten
@@ -84,12 +85,18 @@ def main() -> None:
     if not has_tokens and not (opts.get("email") and opts.get("password")):
         log.error(
             "Keine Garmin-Zugangsdaten. Bitte im Reiter 'Konfiguration' E-Mail und "
-            "Passwort eintragen, speichern und das Add-on neu starten."
+            "Passwort eintragen, speichern und das Add-on neu starten. "
+            "Der MCP-Server läuft trotzdem mit den vorhandenen Daten."
         )
-        while True:  # nicht abstürzen, sonst startet HA das Add-on in einer Schleife neu
-            time.sleep(3600)
+        return
 
-    g = login(opts)
+    while True:
+        try:
+            g = login(opts)
+            break
+        except Exception as e:
+            log.error("Login bei Garmin fehlgeschlagen: %s (neuer Versuch in 30 min)", e)
+            time.sleep(1800)
 
     # Einmaliges Nachladen alter Tageswerte und Aktivitäten
     backfill = int(opts.get("backfill_days") or 0)
@@ -115,6 +122,38 @@ def main() -> None:
         except Exception as e:
             log.error("FIT-Auswertung fehlgeschlagen: %s", e)
         time.sleep(interval)
+
+
+def _thread(name: str, target, *args) -> None:
+    def runner():
+        try:
+            target(*args)
+        except Exception:
+            log.exception("%s ist abgestürzt", name)
+    threading.Thread(target=runner, name=name, daemon=True).start()
+
+
+def main() -> None:
+    opts = load_options()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Datenbank-Schema anlegen, bevor der MCP-Server darauf zugreift
+    store = Store(DB_FILE)
+    fit_store.init(store)
+    store.conn.close()
+
+    _thread("sync", sync_worker, opts)
+
+    if not opts.get("mcp_enabled", True):
+        log.info("MCP-Server ist in den Einstellungen deaktiviert")
+        while True:
+            time.sleep(3600)
+
+    import ha_setup
+    import mcp_server
+
+    _thread("ha_setup", ha_setup.run)
+    asyncio.run(mcp_server.serve())
 
 
 if __name__ == "__main__":
