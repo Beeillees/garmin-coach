@@ -75,10 +75,41 @@ def _day_summary(values: dict) -> str:
     return ", ".join(parts) if parts else "keine Kennzahlen"
 
 
+def _weight_days(data) -> dict:
+    """Garmins Wiegungen nach Tag: {YYYY-MM-DD: Tageszusammenfassung}. Tage ohne Wiegung fehlen."""
+    out = {}
+    for s in (data or {}).get("dailyWeightSummaries") or []:
+        day = (s or {}).get("summaryDate")
+        if day and (s.get("latestWeight") or s.get("allWeightMetrics")):
+            out[day[:10]] = s
+    return out
+
+
+def sync_weight(g: Garmin, store: Store, start: date, end: date) -> int:
+    """Wiegungen (Gewicht, BMI, ggf. Körperfett) als Tageswert 'weight' speichern.
+
+    Ein Abruf liefert einen ganzen Zeitraum; geteilt in Jahresstücke. Rückgabe: Tage mit Wiegung.
+    Wirft bei Fehler, damit der Aufrufer entscheiden kann (Historie erneut versuchen)."""
+    n = 0
+    for cs, ce in _chunks(start, end):
+        days = _weight_days(g.get_weigh_ins(cs.isoformat(), ce.isoformat()))
+        for day, summary in days.items():
+            store.save_daily(day, "weight", summary)
+        n += len(days)
+        time.sleep(PAUSE_S)
+    return n
+
+
 def sync_daily(g: Garmin, store: Store, days_back: int) -> int:
     today = date.today()
     start = today - timedelta(days=days_back - 1)
     fetched = 0
+    try:  # Gewicht: ein Abruf für den ganzen Zeitraum statt einer pro Tag
+        n_w = sync_weight(g, store, start, today)
+        fetched += 1
+        log.info("Gewicht: %d Tage mit Wiegung (%s bis %s)", n_w, start, today)
+    except Exception as e:
+        log.warning("Gewicht fehlgeschlagen: %s", e)
     total = days_back
     log.info("Tageswerte: prüfe %d Tage (%s bis %s)", total, start, today)
     for i, d in enumerate(_days(start, today), 1):
@@ -165,6 +196,9 @@ def _snapshot_sources(today: date) -> dict:
         "scheduled_workouts": lambda g: g.get_scheduled_workouts_by_period(
             (today - timedelta(days=14)).isoformat(), (today + timedelta(days=42)).isoformat()),
         "training_plans": lambda g: g.get_active_training_plans(),
+        # Running Tolerance (Fenix 8): wie viel Laufbelastung der Bewegungsapparat gerade verträgt
+        "running_tolerance": lambda g: g.get_running_tolerance(
+            (today - timedelta(weeks=8)).isoformat(), t, "daily"),
     }
 
 
@@ -194,6 +228,32 @@ def _history_sources(start: date, end: date) -> list:
             ("endurance_score_history", s, lambda g, s=s, e=e: g.get_endurance_score(s, e, "weekly")),
         ]
     return out
+
+
+def sync_history_v07(g: Garmin, store: Store, days: int) -> bool:
+    """Einmalig nachladen, was mit 0.7.0 dazukam: Wiegungen und Running-Tolerance-Verlauf.
+
+    Rückgabe True, wenn alles geklappt hat (sonst versucht es der nächste volle Sync erneut)."""
+    today = date.today()
+    start = today - timedelta(days=days - 1)
+    ok = True
+    try:
+        n = sync_weight(g, store, start, today)
+        log.info("Gewicht-Historie: %d Tage mit Wiegung seit %s", n, start)
+    except Exception as e:
+        log.warning("Gewicht-Historie fehlgeschlagen: %s", e)
+        ok = False
+    for cs, ce in _chunks(start, today):
+        s_, e_ = cs.isoformat(), ce.isoformat()
+        try:
+            data = g.get_running_tolerance(s_, e_, "weekly")
+            store.save_snapshot(s_, "running_tolerance_history", data)
+            log.info("Running-Tolerance-Verlauf ab %s: %s", s_, _size(data))
+        except Exception as e:
+            # Für Zeiträume vor der Fenix 8 gibt es keine Werte; das ist kein Fehler, der ein Wiederholen lohnt
+            log.warning("Running-Tolerance-Verlauf ab %s fehlgeschlagen: %s", s_, e)
+        time.sleep(PAUSE_S)
+    return ok
 
 
 def _size(data) -> str:

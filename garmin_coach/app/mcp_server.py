@@ -25,7 +25,7 @@ log = logging.getLogger("garmin_coach.mcp")
 
 PORT = 8099
 PATH = "/mcp"
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -55,6 +55,10 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   haut_temp_abweichung positiv, stress_schlaf hoch.
 - Notizen (add_note) halten Krankheit, Verletzung, Reise, Stress fest und erscheinen bei den Tagen.
 - Tageswerte stammen aus Garmin Connect, Einheiten aus den Original-FIT-Dateien.
+- Gewicht: Bruno wiegt sich täglich und trägt es in Garmin ein; gewicht_kg in daily_metrics
+  (Tage ohne Wiegung fehlen). Für W/kg, Trends und Flüssigkeitsverlust bei langen Einheiten.
+- Running Tolerance (Fenix 8): garmin_profile(source="running_tolerance"), Verlauf in
+  running_tolerance_history; zeigt, wie viel Laufbelastung der Bewegungsapparat gerade verträgt.
 - Coaching: get_plan liefert Brunos Trainingsplan und Wettkämpfe. Neue Einheiten ohne Bericht zeigt
   pending_reports; nach einem Bericht save_report aufrufen, damit nichts doppelt ausgewertet wird.
 - Tagebuch (log_diary): was Garmin nicht misst – Beine (1 frisch … 5 sehr schwer), Energie
@@ -220,7 +224,7 @@ def daily_metrics(start_date: str | None = None, end_date: str | None = None) ->
     Stress (Schnitt, Minuten je Stufe), Intensitätsminuten, Schritte,
     Trainingsbereitschaft morgens und abends mit Erholungszeit, Tagesbilanz, Regeneration über
     Nacht und Faktoren, Trainingsstatus mit akuter/chronischer Last, VO2max, Hitze-/Höhen-
-    akklimatisierung, Notizen."""
+    akklimatisierung, Gewicht (kg, BMI, ggf. Körperfett/-wasser, Muskelmasse), Notizen."""
     return _call("daily_metrics", queries.daily_metrics, start_date=start_date, end_date=end_date)
 
 
@@ -245,9 +249,10 @@ def garmin_profile(source: str | None = None, day: str | None = None, kompakt: b
     """Leistungsprofil aus Garmin Connect als Schnappschuss (einer pro Tag, daraus entsteht die Historie).
 
     Ohne source: Liste der Quellen. Quellen: lactate_threshold, race_predictions, personal_records,
-    heart_rate_zones, endurance_score, hill_score, scheduled_workouts, training_plans sowie die
-    einmalig geladenen Verläufe lactate_threshold_history, race_predictions_history,
-    endurance_score_history. Verläufe kommen standardmäßig verdichtet (Laktatschwelle nur Änderungen
+    heart_rate_zones, endurance_score, hill_score, scheduled_workouts, training_plans,
+    running_tolerance (letzte 8 Wochen, täglich) sowie die einmalig geladenen Verläufe
+    lactate_threshold_history, race_predictions_history, endurance_score_history,
+    running_tolerance_history (wöchentlich). Verläufe kommen standardmäßig verdichtet (Laktatschwelle nur Änderungen
     mit Pace, Prognosen ein Wert pro Woche); kompakt=False liefert die Rohdaten (sehr groß).
     Rohdaten von Garmin (Zeiten in s).
     lactate_threshold hat zusätzlich 'auswertung' mit Schwellen-HF, -Pace und FTP; Achtung, im

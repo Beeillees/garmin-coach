@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+Gewicht und Running Tolerance kommen dazu.
+
+- **Gewicht:** Wiegungen aus Garmin Connect (manuell eingetragen oder von einer Waage) werden als
+  Tageswert `weight` in `daily_raw` gespeichert, ein Abruf pro Zeitraum statt pro Tag.
+  - `daily_metrics` zeigt `gewicht_kg`, `bmi` und, wenn vorhanden, `koerperfett_pct`,
+    `koerperwasser_pct`, `muskelmasse_kg` (Garmin liefert Gramm, hier in kg).
+  - `review_data` enthält Gewicht im Schnitt sowie am Anfang und Ende des Zeitraums.
+- **Running Tolerance (Fenix 8):** neuer Schnappschuss `running_tolerance` (letzte 8 Wochen,
+  täglich) und Verlauf `running_tolerance_history` (wöchentlich), abrufbar über `garmin_profile`.
+- **Einmaliges Nachladen:** Beim ersten vollen Sync nach dem Update werden Gewicht und
+  Running-Tolerance-Verlauf für `backfill_days` (mindestens 730 Tage) nachgeladen. Eigene
+  Markierung `/data/history_v07_done`; Backfill und übrige Verläufe laufen nicht noch einmal.
+  Fehlende Running-Tolerance-Werte vor der Fenix 8 sind kein Fehler.
+
 ## 0.6.1
 - **Backfill läuft erneut, wenn `backfill_days` größer wird.** Bisher lief der Backfill nur einmal
   und ignorierte spätere Änderungen. Jetzt merkt sich das Add-on die geladene Tiefe: Wer z. B.

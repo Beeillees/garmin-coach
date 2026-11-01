@@ -780,6 +780,23 @@ def _valid_disruptions(sleep):
     return max(vals) if vals else None
 
 
+def _weight_out(w) -> dict:
+    """Wiegung eines Tages lesbar machen. Garmin speichert Gewicht in Gramm, Massen ebenfalls in Gramm."""
+    lw = _dig(w, "latestWeight") or _first(_dig(w, "allWeightMetrics")) or {}
+
+    def kg(v):
+        return _r(v / 1000, 2) if isinstance(v, (int, float)) and v > 0 else None
+
+    return {
+        "gewicht_kg": kg(lw.get("weight")),
+        "bmi": _r(lw.get("bmi"), 1) if lw.get("bmi") else None,
+        "koerperfett_pct": _r(lw.get("bodyFat"), 1) if lw.get("bodyFat") else None,
+        "koerperwasser_pct": _r(lw.get("bodyWater"), 1) if lw.get("bodyWater") else None,
+        "muskelmasse_kg": kg(lw.get("muscleMass")),
+        "wiegungen": _dig(w, "numOfWeightEntries") if (_dig(w, "numOfWeightEntries") or 0) > 1 else None,
+    }
+
+
 def _daily_row(day: str, src: dict) -> dict:
     hrv, sleep, us = src.get("hrv"), src.get("sleep"), src.get("user_summary")
     tr, mm = src.get("training_readiness"), src.get("max_metrics")
@@ -824,6 +841,7 @@ def _daily_row(day: str, src: dict) -> dict:
         "stress_niedrig_min": _min(_dig(us, "lowStressDuration")),
         "stress_ruhe_min": _min(_dig(us, "restStressDuration")),
         "vo2max": _dig(mm, "generic", "vo2MaxPreciseValue"),
+        **_weight_out(src.get("weight")),
     }
     if morning:
         row.update({
@@ -1304,6 +1322,9 @@ def _recovery(days: list) -> dict:
         "trainingsstatus_ende": last.get("status"),
         "vo2max_anfang": next((d["vo2max"] for d in days if d.get("vo2max")), None),
         "vo2max_ende": next((d["vo2max"] for d in reversed(days) if d.get("vo2max")), None),
+        "gewicht_kg_avg": _mean([d.get("gewicht_kg") for d in days], 2),
+        "gewicht_kg_anfang": next((d["gewicht_kg"] for d in days if d.get("gewicht_kg")), None),
+        "gewicht_kg_ende": next((d["gewicht_kg"] for d in reversed(days) if d.get("gewicht_kg")), None),
     })
 
 

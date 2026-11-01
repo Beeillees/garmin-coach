@@ -19,7 +19,7 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 
 | Tabelle | Inhalt |
 |---|---|
-| `daily_raw` | Tageswerte von Garmin als Rohdaten (HRV, Schlaf, Ruhepuls, Body Battery, Stress, Trainingsbereitschaft, Trainingsstatus, VO2max) |
+| `daily_raw` | Tageswerte von Garmin als Rohdaten (HRV, Schlaf, Ruhepuls, Body Battery, Stress, Trainingsbereitschaft, Trainingsstatus, VO2max, Gewicht als Quelle `weight`) |
 | `activities` | Aktivitätsliste von Garmin mit Pfad zur FIT-Datei |
 | `fit_sessions` | Gesamtwerte pro Einheit aus der FIT-Datei plus berechnete Werte |
 | `fit_laps` | Werte pro Runde, inklusive Rundentyp, Workout-Schritt und Zieltempo |
@@ -28,7 +28,7 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `fit_lengths` | Schwimmbahnen |
 | `fit_sets` | Sätze (Kraft, HIIT) |
 | `fit_errors` | FIT-Dateien, die sich nicht auswerten ließen |
-| `garmin_snapshots` | Täglicher Schnappschuss: Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, Endurance-/Hill-Score, geplante Trainings, Trainingspläne |
+| `garmin_snapshots` | Täglicher Schnappschuss: Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, Endurance-/Hill-Score, Running Tolerance, geplante Trainings, Trainingspläne |
 | `notes` | Notizen zu Krankheit, Verletzung, Reise, Stress |
 | `coach_plan` | Trainingsplan als Text, jede Änderung eine neue Version |
 | `races` | Wettkämpfe mit Datum, Distanz, Priorität, Status |

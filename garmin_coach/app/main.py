@@ -15,7 +15,7 @@ from garminconnect import Garmin
 import fit_store
 import scheduler
 from db import Store
-from sync import quick_check, run_sync
+from sync import quick_check, run_sync, sync_history_v07
 
 OPTIONS_FILE = Path("/data/options.json")
 TOKEN_DIR = Path("/data/garmin_tokens")
@@ -37,6 +37,9 @@ def _marker_days(path: Path) -> int:
 # v2 ab 0.5.0: in 0.4.0 scheiterte der Abruf an Garmins 1-Jahres-Grenze, die Markierung wurde
 # trotzdem gesetzt. Deshalb neuer Name, und gesetzt wird sie nur, wenn alle Abrufe geklappt haben.
 HISTORY_MARKER = Path("/data/history_snapshots_v2_done")
+# Mit 0.7.0 neu: Gewicht und Running Tolerance. Bestehende Installationen haben Backfill und
+# Verläufe schon erledigt, deshalb eine eigene Markierung für das einmalige Nachladen.
+HISTORY_V07_MARKER = Path("/data/history_v07_done")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -142,6 +145,11 @@ def sync_worker(opts: dict) -> None:
             history_days = wanted
             log.info("Lade einmalig die Historie von Laktatschwelle, Prognosen usw. (%d Tage)", history_days)
         try:
+            wanted_v07 = max(int(opts.get("backfill_days") or 0), days_back, 730)
+            if _marker_days(HISTORY_V07_MARKER) < wanted_v07:
+                log.info("Lade einmalig Gewicht und Running Tolerance nach (%d Tage)", wanted_v07)
+                if sync_history_v07(g, store, wanted_v07):
+                    HISTORY_V07_MARKER.write_text(str(wanted_v07))
             result = run_sync(g, store, DATA_DIR, days_back, history_days)
             if result.get("verlauf_ok"):
                 HISTORY_MARKER.write_text(str(history_days))
