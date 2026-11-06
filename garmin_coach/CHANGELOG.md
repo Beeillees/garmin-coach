@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.5
+- **Berichte durchschalten:** Die Bericht-Sensoren haben zusätzlich das Attribut `verlauf` mit den
+  vier vorherigen Berichten je Art (neueste zuerst), damit das Dashboard die letzten fünf
+  Tages-, Trainings-, Wochen- und Monatsberichte umschalten kann.
+- Trainingsbericht-Sensor sortiert nach Start der Einheit statt nach Berichtstag.
+- Integration 0.4.1: `text` und `verlauf` werden nicht mehr im HA-Recorder gespeichert.
+  **Nach dem Update HA einmal neu starten**, damit die neue Integrationsversion geladen wird.
+
 ## 0.8.4
 - Berichtsvorlage ohne Kennzahlen-Tabelle: Zahlen zeigt die Dashboard-Karte live aus den Sensoren,
   der Bericht enthält nur die Einschätzung (Überschrift mit Ampel, Einordnung, Stichpunkte).

@@ -94,6 +94,8 @@ def _state_class(value):
 
 class CoachSensor(CoordinatorEntity[CoachCoordinator], SensorEntity):
     _attr_has_entity_name = True
+    # Berichtstexte liegen in der Add-on-Datenbank; im Recorder würden sie nur die HA-Datenbank aufblähen
+    _unrecorded_attributes = frozenset({"text", "verlauf"})
 
     def __init__(self, coordinator: CoachCoordinator, entry: ConfigEntry, key: str) -> None:
         super().__init__(coordinator)

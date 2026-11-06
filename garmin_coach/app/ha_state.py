@@ -297,24 +297,42 @@ REPORT_SENSORS = (("morgen", "Morgenbericht", "mdi:weather-sunset-up"),
                   ("monat", "Monatsbericht", "mdi:calendar-month"))
 
 
-def _report_sensors(c) -> list:
-    """Letzter Bericht je Art. Zustand: Tag bzw. Zeitraum; Text im Attribut 'text'."""
-    out = []
-    for kind, name, icon in REPORT_SENSORS:
-        row = c.execute("SELECT * FROM coach_reports WHERE kind=? ORDER BY day DESC, id DESC LIMIT 1",
-                        (kind,)).fetchone() if queries._table_exists(c, "coach_reports") else None
-        r = dict(row) if row else {}
-        act = None
-        if r.get("activity_id"):
-            a = c.execute("SELECT name, start_local FROM activities WHERE activity_id=?",
-                          (r["activity_id"],)).fetchone()
-            act = dict(a) if a else None
-        out.append(S(f"bericht_{kind}", name, r.get("period") or r.get("day"), icon=icon, attributes={
-            "tag": r.get("day"), "zeitraum": r.get("period"), "erstellt": r.get("created_at"),
+REPORT_HISTORY = 5   # so viele Berichte je Art lassen sich im Dashboard durchschalten
+
+
+def _report_entry(c, r: dict) -> dict:
+    act = None
+    if r.get("activity_id"):
+        a = c.execute("SELECT name, start_local FROM activities WHERE activity_id=?",
+                      (r["activity_id"],)).fetchone()
+        act = dict(a) if a else None
+    return {"tag": r.get("day"), "zeitraum": r.get("period"), "erstellt": r.get("created_at"),
             "activity_id": r.get("activity_id"), "einheit": act["name"] if act else None,
-            "einheit_start": act["start_local"] if act else None,
-            "text": r.get("summary"),
-        }))
+            "einheit_start": act["start_local"] if act else None, "text": r.get("summary")}
+
+
+def _report_sensors(c) -> list:
+    """Letzter Bericht je Art. Zustand: Tag bzw. Zeitraum; Text im Attribut 'text'.
+    Die älteren Berichte (bis REPORT_HISTORY insgesamt) stehen im Attribut 'verlauf', neueste zuerst."""
+    out = []
+    has = queries._table_exists(c, "coach_reports")
+    for kind, name, icon in REPORT_SENSORS:
+        if kind in ("woche", "monat"):
+            order = "COALESCE(period, day) DESC, id DESC"
+        elif kind == "training":
+            order = ("COALESCE((SELECT start_local FROM activities a WHERE a.activity_id = r.activity_id), day) "
+                     "DESC, id DESC")
+        else:
+            order = "day DESC, id DESC"
+        rows = c.execute(f"SELECT * FROM coach_reports r WHERE kind=? ORDER BY {order} LIMIT ?",
+                         (kind, REPORT_HISTORY)).fetchall() if has else []
+        entries = [_report_entry(c, dict(r)) for r in rows]
+        cur = entries[0] if entries else {}
+        attrs = dict(cur) if cur else {k: None for k in ("tag", "zeitraum", "erstellt", "activity_id",
+                                                         "einheit", "einheit_start", "text")}
+        attrs["verlauf"] = entries[1:]
+        out.append(S(f"bericht_{kind}", name, cur.get("zeitraum") or cur.get("tag"), icon=icon,
+                     attributes=attrs))
     return out
 
 

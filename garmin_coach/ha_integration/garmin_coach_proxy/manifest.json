@@ -1,7 +1,7 @@
 {
   "domain": "garmin_coach_proxy",
   "name": "Garmin Coach",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "config_flow": true,
   "single_config_entry": true,
   "dependencies": ["webhook"],
