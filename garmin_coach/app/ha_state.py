@@ -189,9 +189,12 @@ def _training_sensors(c, row: dict) -> list:
     out = []
     ts_day = c.execute("SELECT MAX(day) d FROM daily_raw WHERE source='training_status' AND data IS NOT NULL"
                        ).fetchone()["d"]
-    ts = queries._training_status(_loads(c.execute(
-        "SELECT data FROM daily_raw WHERE source='training_status' AND day=?", (ts_day,)).fetchone()["data"])
-    ) if ts_day else {}
+    ts_raw = _loads(c.execute("SELECT data FROM daily_raw WHERE source='training_status' AND day=?",
+                              (ts_day,)).fetchone()["data"]) if ts_day else None
+    ts = queries._training_status(ts_raw) if ts_raw else {}
+    latest = _dig(ts_raw, "mostRecentTrainingStatus", "latestTrainingStatusData")
+    dev = next(iter(latest.values()), None) if isinstance(latest, dict) and latest else None
+    acute = (dev or {}).get("acuteTrainingLoadDTO") or {}
     ratio = ts.get("last_verhaeltnis")
     out.append(S("trainingsstatus", "Trainingsstatus", _status_de(ts.get("status")), icon="mdi:chart-line",
                  attributes={"tag": ts_day, "roh": ts.get("status"), "akute_last": ts.get("akute_last"),
@@ -200,7 +203,10 @@ def _training_sensors(c, row: dict) -> list:
                              "last_aerob_hoch": ts.get("last_aerob_hoch"), "last_anaerob": ts.get("last_anaerob"),
                              "hitze_akklimatisierung_pct": ts.get("hitze_akklimatisierung_pct")}))
     out.append(S("akute_last", "Akute Last", ts.get("akute_last"), None, None, M, "mdi:weight-lifter",
-                 {"tag": ts_day, "chronisch": ts.get("chronische_last"), "verhaeltnis": ratio}))
+                 {"tag": ts_day, "chronisch": ts.get("chronische_last"), "verhaeltnis": ratio,
+                  "acwr_status": acute.get("acwrStatus"),
+                  "chronisch_min": _r(acute.get("minTrainingLoadChronic"), 0),
+                  "chronisch_max": _r(acute.get("maxTrainingLoadChronic"), 0)}))
     out.append(S("vo2max", "VO2max", ts.get("vo2max") or row.get("vo2max"), "ml/kg/min", None, M,
                  "mdi:lungs", {"tag": ts_day}))
 

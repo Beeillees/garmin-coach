@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+- Sensor `akute_last` hat zusätzlich `acwr_status` und den Zielbereich der chronischen Last
+  (`chronisch_min`, `chronisch_max`) für die Leistungsstand-Karte im Dashboard.
+
 ## 0.8.0
 Garmin Connect als HA-Integration ablösen und Tagebuch im Wortlaut.
 
