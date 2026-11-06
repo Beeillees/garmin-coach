@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.3
+- `save_report(ersetzen=True)` überschreibt einen vorhandenen Bericht (z. B. neu formatiert).
+- Feste Markdown-Vorlage für Berichte (Überschrift mit Ampel, Kennzahlen-Tabelle, Stichpunkte),
+  damit sie im Berichte-Tab gut lesbar sind.
+
 ## 0.8.2
 - **Berichte in Home Assistant:** Neue Sensoren `sensor.garmin_coach_bericht_morgen`, `_abend`,
   `_training`, `_woche`, `_monat` mit dem letzten Bericht je Art (Zustand: Tag bzw. Zeitraum,

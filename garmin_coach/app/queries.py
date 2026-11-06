@@ -1234,7 +1234,7 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
 
 
 def save_report(kind: str, summary: str, activity_id: int = None, day: str = None, period: str = None,
-                db_file=None) -> dict:
+                ersetzen: bool = False, db_file=None) -> dict:
     kind = (kind or "").strip().lower()
     if kind not in REPORT_KINDS:
         raise ValueError(f"Art muss eine von {', '.join(REPORT_KINDS)} sein")
@@ -1246,7 +1246,21 @@ def save_report(kind: str, summary: str, activity_id: int = None, day: str = Non
         per, _, _ = _period_range(kind, period)
         activity_id = None
     limit = 12000 if per else 4000
+    text = (summary or "").strip()[:limit]
     with connect_rw(db_file) as c:
+        if ersetzen:
+            # Vorhandenen Bericht überschreiben (z. B. neu formatiert): Zeitraum, Einheit oder Tag
+            if per:
+                row = c.execute("SELECT id FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone()
+            elif activity_id:
+                row = c.execute("SELECT id FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone()
+            else:
+                row = c.execute("SELECT id FROM coach_reports WHERE kind=? AND day=? ORDER BY id DESC LIMIT 1",
+                                (kind, d)).fetchone()
+            if row:
+                c.execute("UPDATE coach_reports SET summary=? WHERE id=?", (text, row["id"]))
+                return _clean({"id": row["id"], "art": kind, "tag": d, "activity_id": activity_id,
+                               "zeitraum": per, "ersetzt": True})
         if per and c.execute("SELECT 1 FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone():
             return {"hinweis": f"Für {per} gibt es schon einen {kind}-Bericht", "doppelt": True}
         if activity_id:
@@ -1259,7 +1273,7 @@ def save_report(kind: str, summary: str, activity_id: int = None, day: str = Non
         rid = c.execute("INSERT INTO coach_reports(kind, day, activity_id, created_at, summary, period) "
                         "VALUES(?,?,?,?,?,?)",
                         (kind, d, int(activity_id) if activity_id else None, _now_utc(),
-                         (summary or "").strip()[:limit], per)).lastrowid
+                         text, per)).lastrowid
     return _clean({"id": rid, "art": kind, "tag": d, "activity_id": activity_id, "zeitraum": per})
 
 

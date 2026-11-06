@@ -26,7 +26,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.8.2"
+VERSION = "0.8.3"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -62,6 +62,7 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   running_tolerance_history; zeigt, wie viel Laufbelastung der Bewegungsapparat gerade verträgt.
 - Coaching: get_plan liefert Brunos Trainingsplan und Wettkämpfe. Neue Einheiten ohne Bericht zeigt
   pending_reports; nach einem Bericht save_report aufrufen, damit nichts doppelt ausgewertet wird.
+  Die Kurzfassung (summary) erscheint im HA-Dashboard: als Markdown im Aufbau aus save_report.
 - Tagebuch (log_diary): was Garmin nicht misst – Beine (1 frisch … 5 sehr schwer), Energie
   (1 leer … 5 top), Infektzeichen, Schmerz mit Körperstelle (0–10), Verpflegung g KH/h, Freitext.
   Eintragen, wenn Bruno so etwas im Chat erzählt; erscheint in daily_metrics und get_activity.
@@ -379,14 +380,33 @@ def pending_reports(days: int = 2) -> dict:
 
 @server.tool(annotations=WRITE)
 def save_report(kind: str, summary: str, activity_id: int | None = None, day: str | None = None,
-                period: str | None = None) -> dict:
+                period: str | None = None, ersetzen: bool = False) -> dict:
     """Bericht vermerken. kind: morgen, training (braucht activity_id), abend, woche oder monat.
-    summary: bei morgen/training/abend 2–4 Sätze Kern des Berichts (Empfehlung, Bewertung).
-    Bei woche/monat die wichtigsten Erkenntnisse, Zahlen und Vorhaben ausführlicher (bis ca. 15
-    Sätze), damit der nächste Rückblick darauf aufbaut. period: '2026-W44' bzw. '2026-10'
-    (Standard: der fällige Zeitraum wie in pending_reports). Pro Aktivität bzw. Zeitraum nur einmal."""
+    period: '2026-W44' bzw. '2026-10' (Standard: der fällige Zeitraum wie in pending_reports).
+    Pro Aktivität bzw. Zeitraum nur einmal; ersetzen=True überschreibt den vorhandenen Bericht
+    (Zeitraum, Einheit bzw. letzter Bericht der Art an diesem Tag).
+
+    summary erscheint so im Home-Assistant-Dashboard (Markdown-Karte) – deshalb IMMER als
+    Markdown in diesem Aufbau, kurz und scanbar, keine Fließtext-Wand, keine englischen Codes
+    (LOW, STRAINED_4) – auf Deutsch übersetzen:
+      morgen/abend:
+        ### <Ampel-Emoji 🟢/🟡/🟠/🔴> <Kernaussage in wenigen Worten>
+        | HRV | Ruhepuls | Schlaf | Body Battery | (abends z. B. Last | Bereitschaft | Stress)
+        |:-:|:-:|:-:|:-:|
+        | 31 ms ↓ | 61 ↑ | 5:57 h · 56 | 35 |
+        **Einordnung:** ein Satz, warum.
+        **Heute** (abends: **Morgen**) – 2–4 Stichpunkte mit konkreten Vorgaben (Dauer, HF, Pace)
+        optional **Ausblick** – 1–2 Stichpunkte (Wettkampf in x Tagen, Bedingung für nächste Tage)
+      training:
+        ### <Emoji> <Einheit, z. B. Schwelle 4×10 min – sauber umgesetzt>
+        Tabelle mit 3–5 Kernwerten (km, Pace, HF, Last, Drift), dann **Bewertung** 1–2 Sätze,
+        **Mitnehmen** 1–3 Stichpunkte.
+      woche/monat: ### Überschrift mit Ampel, Tabelle Umfang/Last/Erholung gegen Vorperiode,
+        dann Abschnitte **Highlights**, **Probleme**, **Plan gegen Ist**, **Fokus nächste Woche
+        bzw. nächster Monat** (Stichpunkte), zum Schluss **Beim nächsten Rückblick prüfen**.
+        Ausführlich genug, dass der nächste Rückblick darauf aufbaut (bis ca. 2000 Zeichen)."""
     return _call("save_report", queries.save_report, kind=kind, summary=summary, activity_id=activity_id,
-                 day=day, period=period)
+                 day=day, period=period, ersetzen=ersetzen)
 
 
 @server.tool(annotations=READ_ONLY)
