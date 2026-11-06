@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2
+- **Berichte in Home Assistant:** Neue Sensoren `sensor.garmin_coach_bericht_morgen`, `_abend`,
+  `_training`, `_woche`, `_monat` mit dem letzten Bericht je Art (Zustand: Tag bzw. Zeitraum,
+  Text im Attribut `text`). Für einen Berichte-Tab im Dashboard.
+- Nach `save_report` und Tagebucheinträgen werden die HA-Sensoren sofort aufgefrischt.
+
 ## 0.8.1
 - Sensor `akute_last` hat zusätzlich `acwr_status` und den Zielbereich der chronischen Last
   (`chronisch_min`, `chronisch_max`) für die Leistungsstand-Karte im Dashboard.

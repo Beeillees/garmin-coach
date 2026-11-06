@@ -26,7 +26,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.8.1"
+VERSION = "0.8.2"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -146,6 +146,17 @@ def _fmt_params(params: dict) -> str:
     return ", ".join(parts)
 
 
+WRITE_TOOLS_NOTIFY = {"save_report", "log_diary", "delete_diary"}
+
+
+def _notify_ha(tool: str) -> None:
+    """Nach Berichten und Tagebuch die HA-Sensoren sofort auffrischen (im Hintergrund)."""
+    def run():
+        import ha_setup  # spät importieren: ha_setup importiert dieses Modul
+        ha_setup.notify_update(tool)
+    threading.Thread(target=run, name="notify_ha", daemon=True).start()
+
+
 def _call(tool: str, fn, **params) -> Any:
     full = _fmt_params(params)
     short = full if len(full) <= LOG_PARAM_CHARS else full[:LOG_PARAM_CHARS] + " …"
@@ -165,6 +176,8 @@ def _call(tool: str, fn, **params) -> Any:
     log.log(level, "MCP %s | %s Zeilen | %d ms%s | %s%s", tool, "?" if rows is None else rows, ms,
             " (langsam)" if ms > SLOW_MS else "", status, f" | {short}" if short else "")
     _write_log(tool, full, ms, rows, status, None)
+    if tool in WRITE_TOOLS_NOTIFY and not (isinstance(result, dict) and result.get("doppelt")):
+        _notify_ha(tool)
     return result
 
 

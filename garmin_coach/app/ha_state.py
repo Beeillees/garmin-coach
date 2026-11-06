@@ -290,6 +290,34 @@ def _diary_sensor(c) -> dict:
     })
 
 
+REPORT_SENSORS = (("morgen", "Morgenbericht", "mdi:weather-sunset-up"),
+                  ("abend", "Abendbericht", "mdi:weather-night"),
+                  ("training", "Trainingsbericht", "mdi:run"),
+                  ("woche", "Wochenbericht", "mdi:calendar-week"),
+                  ("monat", "Monatsbericht", "mdi:calendar-month"))
+
+
+def _report_sensors(c) -> list:
+    """Letzter Bericht je Art. Zustand: Tag bzw. Zeitraum; Text im Attribut 'text'."""
+    out = []
+    for kind, name, icon in REPORT_SENSORS:
+        row = c.execute("SELECT * FROM coach_reports WHERE kind=? ORDER BY day DESC, id DESC LIMIT 1",
+                        (kind,)).fetchone() if queries._table_exists(c, "coach_reports") else None
+        r = dict(row) if row else {}
+        act = None
+        if r.get("activity_id"):
+            a = c.execute("SELECT name, start_local FROM activities WHERE activity_id=?",
+                          (r["activity_id"],)).fetchone()
+            act = dict(a) if a else None
+        out.append(S(f"bericht_{kind}", name, r.get("period") or r.get("day"), icon=icon, attributes={
+            "tag": r.get("day"), "zeitraum": r.get("period"), "erstellt": r.get("created_at"),
+            "activity_id": r.get("activity_id"), "einheit": act["name"] if act else None,
+            "einheit_start": act["start_local"] if act else None,
+            "text": r.get("summary"),
+        }))
+    return out
+
+
 def _sync_sensor(c) -> dict:
     row = c.execute("SELECT finished_at, kind, message FROM sync_log WHERE status='ok' "
                     "ORDER BY id DESC LIMIT 1").fetchone()
@@ -306,5 +334,6 @@ def build() -> dict:
         sensors = _daily_sensors(today, row, raw)
         sensors += _training_sensors(c, row)
         sensors += [_weight_sensor(c), _activity_sensor(c), _diary_sensor(c), _sync_sensor(c)]
+        sensors += _report_sensors(c)
     return {"erzeugt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "tag": today,
             "sensoren": sensors}

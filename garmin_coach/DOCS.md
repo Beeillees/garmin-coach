@@ -107,6 +107,8 @@ Ab 0.8.0 legt die Integration "Garmin Coach" Sensoren `sensor.garmin_coach_*` an
   Endurance und Hill Score, Wettkampfprognosen, Running Tolerance, Gewicht.
 - **Sonstiges:** letzte Aktivität (Werte aus der FIT-Auswertung als Attribute), letzter
   Tagebucheintrag, letzter Sync.
+- **Berichte des Coaches:** letzter Morgen-, Abend-, Trainings-, Wochen- und Monatsbericht
+  (`sensor.garmin_coach_bericht_*`, Text im Attribut `text`).
 
 Tageswerte gelten für heute; fehlt ein Wert für heute noch (z. B. kurz nach Mitternacht), ist
 der Sensor "unbekannt". Das Attribut `tag` zeigt, worauf sich ein Wert bezieht.
