@@ -13,9 +13,10 @@ from pathlib import Path
 from garminconnect import Garmin
 
 import fit_store
+import ha_setup
 import scheduler
 from db import Store
-from sync import quick_check, run_sync, sync_history_v07
+from sync import live_refresh, quick_check, run_sync, sync_history_v07
 
 OPTIONS_FILE = Path("/data/options.json")
 TOKEN_DIR = Path("/data/garmin_tokens")
@@ -164,10 +165,22 @@ def sync_worker(opts: dict) -> None:
                 log.error("Erneuter Login fehlgeschlagen: %s", e2)
             return {"fehler": str(e)}
 
+    live_minutes = int(opts.get("live_minutes", 30) or 0)
+    last_live = 0.0
+
     def quick() -> dict:
-        nonlocal g
+        nonlocal g, last_live
         try:
-            return quick_check(g, store, DATA_DIR)
+            result = quick_check(g, store, DATA_DIR)
+            # Tageswerte von heute auffrischen, damit die HA-Sensoren nicht bis zum Abend-Sync stehen.
+            # Nach einer neuen Aktivität hat quick_check den Tag schon komplett geholt.
+            if result.get("neue_fit"):
+                last_live = time.monotonic()
+            elif live_minutes and time.monotonic() - last_live >= live_minutes * 60 - 30:
+                live_refresh(g, store)
+                last_live = time.monotonic()
+                result["live"] = True
+            return result
         except Exception as e:
             log.warning("Schnellprüfung fehlgeschlagen: %s", e)
             try:
@@ -185,6 +198,8 @@ def sync_worker(opts: dict) -> None:
                     fit_store.process_pending(store, DATA_DIR)
                 except Exception as e:
                     log.error("FIT-Auswertung fehlgeschlagen: %s", e)
+            if "fehler" not in result and (kind == "voll" or result.get("neue_fit") or result.get("live")):
+                ha_setup.notify_update(kind if kind == "voll" or result.get("neue_fit") else "live")
             return result
         finally:
             scheduler.set_busy(False)
@@ -233,7 +248,6 @@ def main() -> None:
         while True:
             time.sleep(3600)
 
-    import ha_setup
     import mcp_server
 
     _thread("ha_setup", ha_setup.run)

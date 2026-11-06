@@ -1,5 +1,5 @@
 name: Garmin Coach
-version: "0.7.0"
+version: "0.8.0"
 slug: garmin_coach
 description: Speichert und analysiert Garmin-Aktivitäten (FIT) und tägliche Health-Werte lokal in SQLite.
 url: https://github.com/Beeillees/garmin-coach
@@ -24,6 +24,7 @@ options:
     - "19:45"
   activity_check_minutes: 20
   activity_check_window: "06:00-22:00"
+  live_minutes: 30
   mcp_enabled: true
   log_level: info
 schema:
@@ -36,6 +37,7 @@ schema:
     - match(^([01]\d|2[0-3]):[0-5]\d$)
   activity_check_minutes: int(0,240)
   activity_check_window: match(^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$)
+  live_minutes: int(0,240)?
   sync_interval_hours: int(1,24)?
   mcp_enabled: bool
   log_level: list(info|debug)

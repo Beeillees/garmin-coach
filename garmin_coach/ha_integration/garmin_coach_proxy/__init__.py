@@ -1,7 +1,8 @@
-"""Garmin Coach MCP: leitet einen Home-Assistant-Webhook an den MCP-Server des Add-ons weiter.
+"""Garmin Coach: Webhook-Weiterleitung zum MCP-Server und Sensoren aus der Coach-Datenbank.
 
-So ist der MCP-Server über die bestehende externe HA-Adresse erreichbar
-(https://<ha>/api/webhook/<id>), ohne zusätzlichen Port oder Hostnamen.
+1. Leitet einen Home-Assistant-Webhook an den MCP-Server des Add-ons weiter. So ist der
+   MCP-Server über die bestehende externe HA-Adresse erreichbar (https://<ha>/api/webhook/<id>).
+2. Legt Sensoren sensor.garmin_coach_* an (Plattform sensor), gespeist vom Add-on.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from aiohttp import ClientError, ClientTimeout, web
 
 from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -28,6 +30,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 TIMEOUT = ClientTimeout(total=120)
+PLATFORMS = [Platform.SENSOR]
 
 
 def _load_settings() -> dict | None:
@@ -70,13 +73,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass, DOMAIN, "Garmin Coach MCP", settings["webhook_id"], handle,
         local_only=False, allowed_methods=["POST"],
     )
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = settings["webhook_id"]
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"webhook_id": settings["webhook_id"], "target": target}
     _LOGGER.info("Garmin Coach MCP aktiv, Ziel %s", target)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    webhook_id = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    if webhook_id:
-        webhook.async_unregister(hass, webhook_id)
-    return True
+    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None) or {}
+    if data.get("webhook_id"):
+        webhook.async_unregister(hass, data["webhook_id"])
+    return ok

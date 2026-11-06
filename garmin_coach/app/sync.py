@@ -329,3 +329,22 @@ def quick_check(g: Garmin, store: Store, data_dir: Path) -> dict:
     except Exception as e:
         store.log_finish(log_id, "error", repr(e))
         raise
+
+
+def live_refresh(g: Garmin, store: Store) -> int:
+    """Werte von heute auffrischen, die sich tagsüber ändern (Body Battery, Stress, Schritte,
+    Trainingsbereitschaft). Schlaf und HRV nur, solange sie für heute noch fehlen.
+    Kommt ohne Eintrag im Sync-Protokoll aus. Rückgabe: Zahl der Abrufe."""
+    day = date.today().isoformat()
+    sources = ["user_summary", "training_readiness"]
+    sources += [s for s in ("sleep", "hrv") if not store.has_daily(day, s)]
+    n = 0
+    for source in sources:
+        try:
+            store.save_daily(day, source, DAILY_SOURCES[source](g, day))
+            n += 1
+        except Exception as e:
+            log.warning("Live-Wert %s fehlgeschlagen: %s", source, e)
+        time.sleep(PAUSE_S)
+    log.debug("Live-Werte von heute aufgefrischt (%s)", ", ".join(sources))
+    return n

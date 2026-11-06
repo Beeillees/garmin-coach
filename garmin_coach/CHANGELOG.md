@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0
+Garmin Connect als HA-Integration ablösen und Tagebuch im Wortlaut.
+
+- **Sensoren in Home Assistant:** Die mitgelieferte Integration (jetzt "Garmin Coach", Version
+  0.4.0) legt neben der MCP-Weiterleitung 44 Sensoren `sensor.garmin_coach_*` an: Bereitschaft,
+  HRV, Ruhepuls, Body Battery, Stress, Schlaf, Atmung, Leistung, Prognosen, Gewicht, letzte
+  Aktivität, Tagebuch, letzter Sync. Das Add-on liefert sie unter `/ha/state` (nur intern);
+  neue Sensoren brauchen künftig keinen HA-Neustart. **Nach dem Update HA einmal neu starten.**
+- **Live-Werte von heute:** Neue Option `live_minutes` (Standard 30). Während der Schnellprüfung
+  werden Body Battery, Stress, Schritte und Bereitschaft von heute in diesem Abstand aufgefrischt,
+  Schlaf und HRV, solange sie für heute fehlen. Kein Eintrag im Sync-Protokoll.
+- **Sofort aktuell:** Nach jedem Sync sendet das Add-on das Ereignis `garmin_coach_updated`,
+  die Integration holt dann sofort die neuen Werte.
+- **Tagebuch im Wortlaut:** Neue Spalte `diary.original` für Brunos Eingabe unverändert;
+  `text` bleibt die Zusammenfassung. `log_diary(original=…)`; beim Ergänzen mit `entry_id`
+  wird der neue Wortlaut angehängt. `list_diary` zeigt ihn, Rückblicke lassen ihn weg.
+
 ## 0.7.0
 Gewicht und Running Tolerance kommen dazu.
 

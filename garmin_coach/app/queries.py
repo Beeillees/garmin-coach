@@ -192,9 +192,11 @@ def _diary_between(c, start: str, end: str) -> list:
         "SELECT * FROM diary WHERE day BETWEEN ? AND ? ORDER BY day, id", (start, end))]
 
 
-def _diary_out(d: dict) -> dict:
+def _diary_out(d: dict, original: bool = True) -> dict:
+    """original=False lässt den Wortlaut weg (Rückblicke, damit die Antwort klein bleibt)."""
     return _clean({"id": d["id"], "tag": d["day"], "activity_id": d.get("activity_id"),
-                   **{k: d.get(k) for k in DIARY_FIELDS}})
+                   **{k: d.get(k) for k in DIARY_FIELDS},
+                   "original": d.get("original") if original else None})
 
 
 def _diary_short(d: dict) -> str:
@@ -229,7 +231,8 @@ def _check_range(name, v, lo, hi):
 
 def log_diary(day: str = None, activity_id: int = None, beine: int = None, energie: int = None,
               infekt: str = None, schmerz: str = None, schmerz_staerke: int = None, kh_g_pro_h: float = None,
-              fluessigkeit_ml_pro_h: float = None, text: str = None, entry_id: int = None, db_file=None) -> dict:
+              fluessigkeit_ml_pro_h: float = None, text: str = None, entry_id: int = None,
+              original: str = None, original_anhaengen: bool = True, db_file=None) -> dict:
     vals = {
         "beine": _check_range("beine", beine, 1, 5),
         "energie": _check_range("energie", energie, 1, 5),
@@ -240,6 +243,7 @@ def log_diary(day: str = None, activity_id: int = None, beine: int = None, energ
         "fluessigkeit_ml_pro_h": None if fluessigkeit_ml_pro_h is None else float(fluessigkeit_ml_pro_h),
         "text": (text or "").strip()[:4000] or None,
     }
+    orig = (original or "").strip()[:20000] or None
     now = _now_utc()
     with connect_rw(db_file) as c:
         if activity_id:
@@ -253,6 +257,11 @@ def log_diary(day: str = None, activity_id: int = None, beine: int = None, energ
             if not old:
                 raise ValueError(f"Tagebucheintrag {entry_id} nicht gefunden")
             changes = {k: v for k, v in vals.items() if v is not None}
+            if orig:
+                # Wortlaut geht nie verloren: neuer Text wird standardmäßig angehängt
+                old_orig = old["original"] if "original" in old.keys() else None
+                changes["original"] = (f"{old_orig}\n\n{orig}" if old_orig and original_anhaengen
+                                       else orig)
             if day:
                 changes["day"] = date.fromisoformat(day[:10]).isoformat()
             if activity_id:
@@ -263,9 +272,10 @@ def log_diary(day: str = None, activity_id: int = None, beine: int = None, energ
             c.execute(f"UPDATE diary SET {sets}, updated_at=? WHERE id=?", (*changes.values(), now, int(entry_id)))
             rid = int(entry_id)
         else:
-            if all(v is None for v in vals.values()):
+            if all(v is None for v in vals.values()) and not orig:
                 raise ValueError("Leerer Eintrag: mindestens ein Feld angeben")
             d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
+            vals["original"] = orig
             rid = c.execute(
                 f"INSERT INTO diary(day, activity_id, {', '.join(vals)}, created_at, updated_at) "
                 f"VALUES(?, ?, {', '.join('?' * len(vals))}, ?, ?)",
@@ -1339,7 +1349,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
     days = daily_metrics(s, e, db_file=db_file)
     prev_days = daily_metrics(ps, pe, db_file=db_file)
     with connect(db_file) as c:
-        diary = [_diary_out(d) for d in _diary_between(c, s, e)]
+        diary = [_diary_out(d, original=False) for d in _diary_between(c, s, e)]
         notes = _notes_between(c, s, e)
         reps = c.execute("SELECT * FROM coach_reports WHERE day BETWEEN ? AND ? ORDER BY day, id",
                          (s, e)).fetchall() if _table_exists(c, "coach_reports") else []

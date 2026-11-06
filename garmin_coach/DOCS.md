@@ -33,7 +33,7 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `coach_plan` | Trainingsplan als Text, jede Änderung eine neue Version |
 | `races` | Wettkämpfe mit Datum, Distanz, Priorität, Status |
 | `coach_reports` | Berichte des Coaches (Morgen, Training, Abend, Woche, Monat) mit Kurzfassung und Zeitraum |
-| `diary` | Trainingstagebuch: Beine, Energie, Infektzeichen, Schmerzen, Verpflegung, Freitext |
+| `diary` | Trainingstagebuch: Beine, Energie, Infektzeichen, Schmerzen, Verpflegung, Zusammenfassung (`text`) und Brunos Eingabe im Wortlaut (`original`) |
 | `mcp_log` | Protokoll der Abfragen von Claude (90 Tage) |
 | `sync_log` | Protokoll der Sync-Läufe (`kind`: voll oder schnell) |
 
@@ -94,6 +94,26 @@ ist normal.
 | `sync_now` | Sofort-Sync (`schnell` oder `voll`) und auf das Ergebnis warten |
 | `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |
 
+## Sensoren in Home Assistant
+
+Ab 0.8.0 legt die Integration "Garmin Coach" Sensoren `sensor.garmin_coach_*` an, gespeist aus
+`garmin.db`. Damit braucht es die HA-Integration Garmin Connect nicht mehr.
+
+- **Heute:** Trainingsbereitschaft (aktuell und am Morgen), Erholungszeit, HRV (Nacht, 7 Tage,
+  Status), Ruhepuls (heute, 7 Tage), Body Battery (aktuell, Höchstwert, aufgeladen), Stress,
+  Schlaf (Wert, Dauer, Tief, leicht, REM, wach, Bedarf, eingeschlafen, aufgewacht, empfohlene
+  Schlafenszeit), Atemfrequenz, Hauttemperatur, SpO2, Schritte, Intensitätsminuten.
+- **Leistung:** Trainingsstatus, akute Last, VO2max, Laktatschwelle (HF, Pace), FTP,
+  Endurance und Hill Score, Wettkampfprognosen, Running Tolerance, Gewicht.
+- **Sonstiges:** letzte Aktivität (Werte aus der FIT-Auswertung als Attribute), letzter
+  Tagebucheintrag, letzter Sync.
+
+Tageswerte gelten für heute; fehlt ein Wert für heute noch (z. B. kurz nach Mitternacht), ist
+der Sensor "unbekannt". Das Attribut `tag` zeigt, worauf sich ein Wert bezieht.
+Aktualisiert wird nach jedem Sync sofort (Ereignis `garmin_coach_updated`) und sonst alle
+10 Minuten. Welche Sensoren es gibt, bestimmt das Add-on; neue kommen mit einem Add-on-Update
+ohne HA-Neustart dazu. Nach dem Update auf 0.8.0 ist **einmal ein HA-Neustart** nötig.
+
 ## Einstellungen
 
 | Option | Bedeutung |
@@ -105,6 +125,7 @@ ist normal.
 | `sync_times` | Uhrzeiten für den vollen Sync in lokaler Zeit (Standard `05:15`, `19:45`). |
 | `activity_check_minutes` | Abstand der Schnellprüfung auf neue Aktivitäten in Minuten (Standard 20, `0` = aus). |
 | `activity_check_window` | Zeitfenster der Schnellprüfung (Standard `06:00-22:00`). |
+| `live_minutes` | Abstand, in dem während der Schnellprüfung die Werte von heute (Body Battery, Stress, Schritte, Bereitschaft) aufgefrischt werden, in Minuten (Standard 30, `0` = aus). |
 | `mcp_enabled` | MCP-Server für Claude an/aus (Standard: an). |
 | `log_level` | `info` (Standard) oder `debug` (vollständige Parameter jeder Abfrage). |
 

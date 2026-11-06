@@ -123,7 +123,8 @@ CREATE TABLE IF NOT EXISTS diary (
     schmerz_staerke INTEGER,                -- 0 ... 10
     kh_g_pro_h      REAL,                   -- Kohlenhydrate pro Stunde (lange Einheiten)
     fluessigkeit_ml_pro_h REAL,
-    text            TEXT,
+    text            TEXT,                   -- Zusammenfassung
+    original        TEXT,                   -- Brunos Eingabe im Wortlaut
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -134,6 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_diary_day ON diary(day);
 MIGRATIONS = [
     ("sync_log", "kind", "TEXT DEFAULT 'voll'"),
     ("coach_reports", "period", "TEXT"),       # 0.6: '2026-W44' bzw. '2026-10' für Wochen-/Monatsberichte
+    ("diary", "original", "TEXT"),             # 0.8: Brunos Eingabe im Wortlaut (text = Zusammenfassung)
 ]
 
 # Indizes, die erst nach den Migrationen angelegt werden können

@@ -14,6 +14,11 @@ FORWARD_REQUEST_HEADERS = ("content-type", "accept", "last-event-id")
 FORWARD_RESPONSE_HEADERS = ("content-type",)
 FORWARD_PREFIX = "mcp-"
 
+# Sensoren: Pfad am Add-on (neben /mcp), Ereignis nach jedem Sync, Abruf-Intervall als Rückfall
+STATE_PATH = "/ha/state"
+UPDATE_EVENT = "garmin_coach_updated"
+POLL_MINUTES = 10
+
 
 def pick_headers(headers, names) -> dict:
     return {k: v for k, v in headers.items()

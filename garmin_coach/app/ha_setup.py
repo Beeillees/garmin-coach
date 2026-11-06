@@ -58,6 +58,19 @@ def _api(method: str, path: str, body: dict | None = None):
             return e.code, raw.decode(errors="replace")
 
 
+EVENT = "garmin_coach_updated"
+
+
+def notify_update(reason: str) -> None:
+    """Sagt der HA-Integration, dass neue Werte da sind (sie aktualisiert dann sofort die Sensoren)."""
+    try:
+        status, _ = _api("POST", f"/events/{EVENT}", {"grund": reason})
+        if status != 200:
+            log.debug("Ereignis %s nicht gesendet (%s)", EVENT, status)
+    except Exception as e:  # ohne Ereignis holt die Integration die Werte beim nächsten Abruf
+        log.debug("Ereignis %s nicht gesendet: %s", EVENT, e)
+
+
 def webhook_id() -> str:
     if WEBHOOK_ID_FILE.exists():
         wid = WEBHOOK_ID_FILE.read_text().strip()

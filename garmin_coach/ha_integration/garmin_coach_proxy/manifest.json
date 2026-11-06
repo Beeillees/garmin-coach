@@ -1,7 +1,7 @@
 {
   "domain": "garmin_coach_proxy",
-  "name": "Garmin Coach MCP",
-  "version": "0.3.0",
+  "name": "Garmin Coach",
+  "version": "0.4.0",
   "config_flow": true,
   "single_config_entry": true,
   "dependencies": ["webhook"],
@@ -9,6 +9,6 @@
   "issue_tracker": "https://github.com/Beeillees/garmin-coach/issues",
   "codeowners": [],
   "requirements": [],
-  "iot_class": "local_push",
+  "iot_class": "local_polling",
   "integration_type": "service"
 }

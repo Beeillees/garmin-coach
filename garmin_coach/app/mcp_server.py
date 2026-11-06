@@ -25,7 +25,8 @@ log = logging.getLogger("garmin_coach.mcp")
 
 PORT = 8099
 PATH = "/mcp"
-VERSION = "0.7.0"
+STATE_PATH = "/ha/state"
+VERSION = "0.8.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -64,6 +65,7 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
 - Tagebuch (log_diary): was Garmin nicht misst – Beine (1 frisch … 5 sehr schwer), Energie
   (1 leer … 5 top), Infektzeichen, Schmerz mit Körperstelle (0–10), Verpflegung g KH/h, Freitext.
   Eintragen, wenn Bruno so etwas im Chat erzählt; erscheint in daily_metrics und get_activity.
+  Immer original = Brunos Nachricht im Wortlaut mitgeben, text = deine Zusammenfassung.
 - Rückblicke: review_data(kind=woche|monat) liefert alles für einen Wochen-/Monatsrückblick in
   einem Abruf; danach save_report(kind=woche|monat, period=…). pending_reports zeigt, ob sie fehlen.
 - Aktuelle Daten: sync_now (schnell = nur neue Aktivitäten, voll = alles). Sonst läuft der Sync
@@ -289,8 +291,14 @@ def log_diary(day: str | None = None, activity_id: int | None = None, beine: int
               energie: int | None = None, infekt: str | None = None, schmerz: str | None = None,
               schmerz_staerke: int | None = None, kh_g_pro_h: float | None = None,
               fluessigkeit_ml_pro_h: float | None = None, text: str | None = None,
-              entry_id: int | None = None) -> dict:
+              entry_id: int | None = None, original: str | None = None,
+              original_anhaengen: bool = True) -> dict:
     """Tagebucheintrag zu dem, was Garmin nicht misst. Eintragen, wenn Bruno es im Chat erzählt.
+
+    original: IMMER mitgeben – Brunos Nachricht(en) dazu im Wortlaut, unverändert und ungekürzt
+    (auch Tippfehler, Diktierfehler, Umgangssprache). text ist deine Zusammenfassung, original
+    das Rohmaterial. Beim Ergänzen mit entry_id wird original an den vorhandenen Wortlaut
+    angehängt (original_anhaengen=False ersetzt ihn, nur zum Korrigieren auf Brunos Wunsch).
 
     day YYYY-MM-DD (Standard heute; bei activity_id der Tag der Einheit). Alle Felder optional:
     beine 1 (frisch) … 5 (sehr schwer); energie 1 (leer) … 5 (top); infekt: Symptome als Text;
@@ -300,12 +308,12 @@ def log_diary(day: str | None = None, activity_id: int | None = None, beine: int
     return _call("log_diary", queries.log_diary, day=day, activity_id=activity_id, beine=beine,
                  energie=energie, infekt=infekt, schmerz=schmerz, schmerz_staerke=schmerz_staerke,
                  kh_g_pro_h=kh_g_pro_h, fluessigkeit_ml_pro_h=fluessigkeit_ml_pro_h, text=text,
-                 entry_id=entry_id)
+                 entry_id=entry_id, original=original, original_anhaengen=original_anhaengen)
 
 
 @server.tool(annotations=READ_ONLY)
 def list_diary(start_date: str | None = None, end_date: str | None = None) -> list | dict:
-    """Tagebucheinträge eines Zeitraums (Standard: letzte 28 Tage)."""
+    """Tagebucheinträge eines Zeitraums (Standard: letzte 28 Tage), mit Brunos Wortlaut (original)."""
     return _call("list_diary", queries.list_diary, start_date=start_date, end_date=end_date)
 
 
@@ -440,7 +448,23 @@ async def serve() -> None:
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         host="0.0.0.0",
     )
-    log.info("MCP-Server %s startet auf Port %d (Pfad %s)", VERSION, PORT, PATH)
+    # Sensoren für die HA-Integration (nur intern erreichbar, nicht über den Webhook)
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    import ha_state
+
+    async def ha_state_endpoint(request):
+        try:
+            data = await asyncio.to_thread(ha_state.build)
+            data["version"] = VERSION
+            return JSONResponse(data)
+        except Exception as e:  # HA soll eine klare Meldung bekommen statt eines Abbruchs
+            log.exception("Sensoren für HA nicht erzeugt")
+            return JSONResponse({"fehler": str(e)}, status_code=500)
+
+    app.router.routes.append(Route(STATE_PATH, ha_state_endpoint, methods=["GET"]))
+    log.info("MCP-Server %s startet auf Port %d (Pfad %s, Sensoren %s)", VERSION, PORT, PATH, STATE_PATH)
     # Kein Zugriffsprotokoll pro Anfrage; die Werkzeugaufrufe protokollieren wir selbst.
     config = uvicorn.Config(app, host="0.0.0.0", port=PORT, access_log=False, log_level="warning")
     await uvicorn.Server(config).serve()
