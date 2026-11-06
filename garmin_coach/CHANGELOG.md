@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.4
+- Berichtsvorlage ohne Kennzahlen-Tabelle: Zahlen zeigt die Dashboard-Karte live aus den Sensoren,
+  der Bericht enthält nur die Einschätzung (Überschrift mit Ampel, Einordnung, Stichpunkte).
+
 ## 0.8.3
 - `save_report(ersetzen=True)` überschreibt einen vorhandenen Bericht (z. B. neu formatiert).
 - Feste Markdown-Vorlage für Berichte (Überschrift mit Ampel, Kennzahlen-Tabelle, Stichpunkte),
