@@ -1,7 +1,8 @@
 """MCP-Server: macht garmin.db für Claude zugänglich.
 
-Schreibend sind nur Notizen, Tagebuch, Trainingsplan, Wettkämpfe und Coach-Berichte; Garmin selbst wird
-nie verändert. Jeder Werkzeugaufruf wird mit Dauer,
+Schreibend sind Notizen, Tagebuch, Trainingsplan, Wettkämpfe und Coach-Berichte. In Garmin Connect
+schreiben nur die Workout-Werkzeuge (create_workout, delete_workout), und nur Trainings mit dem
+Präfix "Coach: " – alles andere in Garmin bleibt unangetastet. Jeder Werkzeugaufruf wird mit Dauer,
 Ergebnisgröße und Status protokolliert, im Add-on-Protokoll und in der Tabelle mcp_log.
 """
 
@@ -20,13 +21,14 @@ from mcp.types import ToolAnnotations
 
 import queries
 import scheduler
+import workouts
 
 log = logging.getLogger("garmin_coach.mcp")
 
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.8.4"
+VERSION = "0.9.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -71,6 +73,10 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   einem Abruf; danach save_report(kind=woche|monat, period=…). pending_reports zeigt, ob sie fehlen.
 - Aktuelle Daten: sync_now (schnell = nur neue Aktivitäten, voll = alles). Sonst läuft der Sync
   zu festen Zeiten plus Schnellprüfung tagsüber.
+- Trainings auf die Uhr: create_workout legt eine strukturierte Laufeinheit (Schritte mit Pace-/HF-Ziel)
+  in Garmin Connect an und plant sie auf ein Datum; die Uhr lädt sie beim nächsten Sync. Erst mit
+  vorschau=True prüfen, wenn unsicher. list_workouts zeigt geplante Trainings (auch fremde Apps),
+  delete_workout löscht nur Trainings des Coaches.
 """
 
 server = MCPServer(name="garmin-coach", title="Garmin Coach", instructions=INSTRUCTIONS, version=VERSION)
@@ -465,6 +471,50 @@ def query_sql(sql: str) -> dict:
     Funktion sport_gruppe(type_key, fit_sport). Erst describe_schema aufrufen, wenn Spalten unklar sind.
     """
     return _call("query_sql", queries.run_sql, sql=sql)
+
+
+# --- Trainings auf die Uhr ------------------------------------------------------
+
+@server.tool(annotations=WRITE)
+async def create_workout(day: str, name: str, schritte: list[dict], beschreibung: str | None = None,
+                         vorschau: bool = False, ersetzen: bool = False) -> dict:
+    """Strukturiertes Lauftraining in Garmin Connect anlegen und auf `day` (YYYY-MM-DD, heute bis
+    +60 Tage) einplanen. Die Uhr lädt es beim nächsten Sync; Bruno sieht dann Schritte, Pace- und
+    HF-Alarme. Der Name bekommt automatisch das Präfix "Coach: ".
+
+    schritte: Liste von Schritten, jeder mit
+      typ: aufwaermen | lauf | intervall | erholung | pause | abwaermen
+      genau eins von: dauer_min (Zahl) | distanz_km (Zahl) | bis_taste (true)
+      optional: pace "4:00-4:10" (min/km, Bereich oder Einzelwert ±5 s), hf "150-160" (bpm)
+                oder hf_zone 1–5, hinweis (kurzer Text, erscheint auf der Uhr)
+      Mit pace und hf zugleich: Pace ist Hauptziel, HF Zweitziel.
+    Wiederholung: {"wiederholen": 4, "schritte": [...], "letzte_pause_weglassen": true}
+    Beispiel Schwelle: [{"typ":"aufwaermen","distanz_km":2,"hf":"125-140"},
+      {"wiederholen":4,"schritte":[{"typ":"intervall","dauer_min":8,"pace":"4:00-4:10","hf":"160-172"},
+                                   {"typ":"erholung","dauer_min":2}]},
+      {"typ":"abwaermen","distanz_km":2}]
+
+    vorschau=True: nur prüfen und anzeigen, nichts an Garmin senden.
+    Gleicher Name am selben Tag schon geplant: Status schon_vorhanden; ersetzen=True löscht das alte
+    Coach-Training und legt es neu an. Vorgaben aus dem Morgenbericht übernehmen, nicht erfinden."""
+    return await asyncio.to_thread(_call, "create_workout", workouts.create, day=day, name=name,
+                                   schritte=schritte, beschreibung=beschreibung, vorschau=vorschau,
+                                   ersetzen=ersetzen)
+
+
+@server.tool(annotations=READ_ONLY)
+async def list_workouts(start_date: str | None = None, end_date: str | None = None) -> dict:
+    """Geplante Trainings im Garmin-Kalender (Standard: heute bis +13 Tage), live von Garmin.
+    Enthält auch Trainings von Bruno oder anderen Apps (von_coach=false), mit Schritten als Text."""
+    return await asyncio.to_thread(_call, "list_workouts", workouts.list_scheduled,
+                                   start_date=start_date, end_date=end_date)
+
+
+@server.tool(annotations=DELETE)
+async def delete_workout(workout_id: int) -> dict:
+    """Training des Coaches aus Garmin Connect löschen (Vorlage und Termin). Trainings ohne
+    Präfix "Coach: " werden abgelehnt."""
+    return await asyncio.to_thread(_call, "delete_workout", workouts.delete, workout_id=workout_id)
 
 
 async def serve() -> None:

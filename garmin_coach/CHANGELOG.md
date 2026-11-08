@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+- **Trainings direkt auf die Uhr:** neue MCP-Werkzeuge
+  - `create_workout` – strukturierte Laufeinheit (Aufwärmen, Wiederholungen, Pausen, Pace- und
+    HF-Ziele, Hinweise) in Garmin Connect anlegen und auf ein Datum einplanen; die Uhr lädt sie beim
+    nächsten Sync. `vorschau=True` prüft nur, `ersetzen=True` tauscht ein gleichnamiges Training am
+    selben Tag aus.
+  - `list_workouts` – geplante Trainings im Garmin-Kalender, live (auch von anderen Apps).
+  - `delete_workout` – löscht nur Trainings des Coaches.
+- Sicherheit: Alle Trainings des Coaches heißen „Coach: …“ und tragen `[garmin-coach]` in der
+  Beschreibung. Löschen/Ersetzen fremder Trainings wird abgelehnt.
+- Der MCP-Server nutzt dafür die Garmin-Anmeldung des Sammlers; keine zusätzlichen Zugangsdaten.
+
 ## 0.8.5
 - **Berichte durchschalten:** Die Bericht-Sensoren haben zusätzlich das Attribut `verlauf` mit den
   vier vorherigen Berichten je Art (neueste zuerst), damit das Dashboard die letzten fünf

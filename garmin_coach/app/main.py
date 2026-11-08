@@ -15,6 +15,7 @@ from garminconnect import Garmin
 import fit_store
 import ha_setup
 import scheduler
+import workouts
 from db import Store
 from sync import live_refresh, quick_check, run_sync, sync_history_v07
 
@@ -96,6 +97,7 @@ def login(opts: dict) -> Garmin:
         prompt_mfa=make_mfa_prompt(opts),
     )
     g.login(str(TOKEN_DIR))
+    workouts.set_client(g)  # auch der MCP-Server nutzt diese Anmeldung (Trainings auf die Uhr)
     log.info("Bei Garmin Connect angemeldet")
     return g
 
