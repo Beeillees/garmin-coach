@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.2
+- **Gewicht als Tageswert = niedrigster Wert des Tages** (bisher der zuletzt eingetragene). Bei mehreren
+  Wiegungen steht der höchste Wert zusätzlich in `gewicht_max_kg`.
+- `daily_metrics`: neu `gewicht_7tage` (Mittel der letzten 7 Kalendertage, erst ab 3 Wiegungen) und
+  `gewicht_vorwoche_diff` (Unterschied zum 7-Tage-Mittel von vor einer Woche). Tage ohne Wiegung bleiben Lücken.
+- `review_data`: neuer Block `gewicht` (Mittel, Vorperiode, Differenz, niedrigster/höchster Wert, Tage mit
+  Wiegung); im Monatsrückblick zusätzlich `gewicht_kg_avg` je Woche, in den Tagen `gewicht_kg`.
+- HA-Sensor `sensor.garmin_coach_gewicht` zeigt den Tageswert (niedrigster Wert) und hat zusätzlich die
+  Attribute `max_kg`, `mittel_7_tage`, `mittel_vorwoche`, `differenz` und `wochen` (Wochenmittel der
+  letzten 26 Wochen als `[Montag, Mittel kg, Tage]`).
+- Werkzeugbeschreibungen weisen darauf hin, Trends nur über Mittelwerte zu bewerten.
+- Der Dashboard-Sensor `sensor.garmin_coach_tageswerte` ist ein SQL-Helper in Home Assistant und liest
+  `daily_raw` direkt; die Gewichts-Spalten kommen dort aus der Abfrage, nicht aus dem Add-on.
+
 ## 0.9.1
 - Trainingsname ohne Präfix „Coach: …“ – erkannt werden Coach-Trainings jetzt nur an der
   Markierung `[garmin-coach]` in der Beschreibung (Trainings aus 0.9.0 weiterhin).

@@ -790,21 +790,80 @@ def _valid_disruptions(sleep):
     return max(vals) if vals else None
 
 
+def _weight_min_g(w):
+    """Niedrigster Wert des Tages in Gramm (Brunos Tageswert); ohne Zusammenfassung aus den Einzelwiegungen."""
+    v = _dig(w, "minWeight")
+    if isinstance(v, (int, float)) and v > 0:
+        return v
+    lw = _dig(w, "latestWeight")
+    metrics = _dig(w, "allWeightMetrics")
+    items = (metrics if isinstance(metrics, list) else [metrics] if metrics else []) + ([lw] if lw else [])
+    vals = [m.get("weight") for m in items if isinstance(m, dict)]
+    vals = [x for x in vals if isinstance(x, (int, float)) and x > 0]
+    return min(vals) if vals else None
+
+
 def _weight_out(w) -> dict:
-    """Wiegung eines Tages lesbar machen. Garmin speichert Gewicht in Gramm, Massen ebenfalls in Gramm."""
+    """Wiegung eines Tages lesbar machen. Garmin speichert Gewicht in Gramm, Massen ebenfalls in Gramm.
+
+    gewicht_kg ist der niedrigste Wert des Tages; bei mehreren Wiegungen steht der höchste in gewicht_max_kg."""
     lw = _dig(w, "latestWeight") or _first(_dig(w, "allWeightMetrics")) or {}
 
     def kg(v):
         return _r(v / 1000, 2) if isinstance(v, (int, float)) and v > 0 else None
 
+    low, high = kg(_weight_min_g(w)), kg(_dig(w, "maxWeight"))
     return {
-        "gewicht_kg": kg(lw.get("weight")),
+        "gewicht_kg": low,
+        "gewicht_max_kg": high if high and low and high > low else None,
         "bmi": _r(lw.get("bmi"), 1) if lw.get("bmi") else None,
         "koerperfett_pct": _r(lw.get("bodyFat"), 1) if lw.get("bodyFat") else None,
         "koerperwasser_pct": _r(lw.get("bodyWater"), 1) if lw.get("bodyWater") else None,
         "muskelmasse_kg": kg(lw.get("muscleMass")),
         "wiegungen": _dig(w, "numOfWeightEntries") if (_dig(w, "numOfWeightEntries") or 0) > 1 else None,
     }
+
+
+def _weight_days(c, start: str, end: str) -> dict:
+    """Tageswerte (niedrigster Wert, kg) {YYYY-MM-DD: kg} im Zeitraum; Tage ohne Wiegung fehlen."""
+    out = {}
+    for r in c.execute("SELECT day, data FROM daily_raw WHERE source='weight' AND data IS NOT NULL "
+                       "AND day BETWEEN ? AND ?", (start, end)):
+        kg = _weight_out(_loads(r["data"])).get("gewicht_kg")
+        if kg:
+            out[r["day"]] = kg
+    return out
+
+
+def _weight_mean7(wmap: dict, day: str):
+    """Mittel der Tageswerte der 7 Kalendertage bis einschließlich day; erst ab 3 Werten."""
+    d = date.fromisoformat(day)
+    vals = [wmap[k] for k in ((d - timedelta(days=i)).isoformat() for i in range(7)) if k in wmap]
+    return round(sum(vals) / len(vals), 2) if len(vals) >= 3 else None
+
+
+def weight_overview(weeks: int = 26, db_file=None) -> dict:
+    """Aktueller Gewichtsstand mit 7-Tage-Mittel, Vorwochen-Vergleich und Wochenmitteln (Mo–So)."""
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    first = monday - timedelta(weeks=weeks - 1)
+    with connect(db_file) as c:
+        wmap = _weight_days(c, (first - timedelta(days=14)).isoformat(), today.isoformat())
+    if not wmap:
+        return {}
+    last_day = max(wmap)
+    m7 = _weight_mean7(wmap, today.isoformat())
+    m7_prev = _weight_mean7(wmap, (today - timedelta(days=7)).isoformat())
+    wochen = []
+    for i in range(weeks):
+        mon = first + timedelta(weeks=i)
+        vals = [wmap[k] for k in ((mon + timedelta(days=j)).isoformat() for j in range(7)) if k in wmap]
+        wochen.append([mon.isoformat(), round(sum(vals) / len(vals), 2) if vals else None, len(vals)])
+    return _clean({
+        "tag": last_day, "kg": wmap[last_day], "mittel_7_tage": m7, "mittel_vorwoche": m7_prev,
+        "differenz": round(m7 - m7_prev, 2) if m7 is not None and m7_prev is not None else None,
+        "wochen": wochen,
+    })
 
 
 def _daily_row(day: str, src: dict) -> dict:
@@ -883,6 +942,7 @@ def daily_metrics(start_date=None, end_date=None, db_file=None) -> list:
             (before, end)).fetchall()
         notes = _notes_between(c, start, end)
         diary = _diary_between(c, start, end)
+        wmap = _weight_days(c, (date.fromisoformat(start) - timedelta(days=13)).isoformat(), end)
     by_day = {}
     for r in rows:
         by_day.setdefault(r["day"], {})[r["source"]] = _loads(r["data"])
@@ -897,6 +957,12 @@ def daily_metrics(start_date=None, end_date=None, db_file=None) -> list:
         prev_evening, prev_day = evening, day
         if day < start:
             continue
+        m7 = _weight_mean7(wmap, day)
+        if m7 is not None:
+            row["gewicht_7tage"] = m7
+            m7_prev = _weight_mean7(wmap, (date.fromisoformat(day) - timedelta(days=7)).isoformat())
+            if m7_prev is not None:
+                row["gewicht_vorwoche_diff"] = round(m7 - m7_prev, 2)
         day_notes = [_note_text(n) for n in notes if n["day_from"] <= day <= n["day_to"]]
         if day_notes:
             row["notizen"] = day_notes
@@ -1352,6 +1418,21 @@ def _recovery(days: list) -> dict:
     })
 
 
+def _weight_compare(days: list, prev_days: list) -> dict:
+    """Gewicht im Zeitraum gegen die Vorperiode: Mittel der Tageswerte (niedrigster Wert des Tages)."""
+    cur = [d["gewicht_kg"] for d in days if d.get("gewicht_kg")]
+    prev = [d["gewicht_kg"] for d in prev_days if d.get("gewicht_kg")]
+    m, pm = _mean(cur, 2), _mean(prev, 2)
+    return _clean({
+        "mittel_kg": m, "mittel_vorperiode_kg": pm,
+        "differenz_kg": round(m - pm, 2) if m is not None and pm is not None else None,
+        "min_kg": min(cur, default=None), "max_kg": max(cur, default=None),
+        "tage_mit_wiegung": len(cur) or None, "tage_mit_wiegung_vorperiode": len(prev) or None,
+        "hinweis": "Tageswert = niedrigster Wert des Tages. Einzelwerte schwanken um ±1–2 kg (Wasser, Essen); "
+                   "Trends nur über Mittel bewerten.",
+    }) if cur else {}
+
+
 def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
     """Alles für einen Wochen- oder Monatsrückblick in einem Abruf."""
     kind = (kind or "woche").strip().lower()
@@ -1401,6 +1482,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
             "last": round(sum(a.get("last") or 0 for a in da)) or None,
             "bereitschaft": d.get("bereitschaft"), "bereitschaft_abend": d.get("bereitschaft_abend"),
             "hrv": d.get("hrv_nacht"), "ruhepuls": d.get("ruhepuls"), "schlaf_h": d.get("schlaf_h"),
+            "gewicht_kg": d.get("gewicht_kg"),
             "tagebuch": d.get("tagebuch"), "notizen": d.get("notizen"),
         }))
     reports = [_clean({"art": r["kind"], "tag": r["day"], "activity_id": r["activity_id"],
@@ -1419,6 +1501,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
         "schluesseleinheiten": key_sessions,
         "erholung": _recovery(days),
         "erholung_vorperiode": _recovery(prev_days),
+        "gewicht": _weight_compare(days, prev_days) or None,
         "tagebuch": diary,
         "notizen": [_note_text(n) for n in notes],
         "berichte_im_zeitraum": reports,
@@ -1440,6 +1523,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
             "bereitschaft_avg": _mean([d.get("bereitschaft") for d in ds], 0),
             "hrv_avg": _mean([d.get("hrv") for d in ds], 0),
             "schlaf_h_avg": _mean([d.get("schlaf_h") for d in ds], 2),
+            "gewicht_kg_avg": _mean([d.get("gewicht_kg") for d in ds], 2),
         } for wk, ds in sorted(weeks.items())]
     return out
 

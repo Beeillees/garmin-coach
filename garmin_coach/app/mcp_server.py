@@ -58,8 +58,10 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   haut_temp_abweichung positiv, stress_schlaf hoch.
 - Notizen (add_note) halten Krankheit, Verletzung, Reise, Stress fest und erscheinen bei den Tagen.
 - Tageswerte stammen aus Garmin Connect, Einheiten aus den Original-FIT-Dateien.
-- Gewicht: Bruno wiegt sich täglich und trägt es in Garmin ein; gewicht_kg in daily_metrics
-  (Tage ohne Wiegung fehlen). Für W/kg, Trends und Flüssigkeitsverlust bei langen Einheiten.
+- Gewicht: Bruno wiegt sich täglich und trägt es in Garmin ein; gewicht_kg in daily_metrics ist der
+  niedrigste Wert des Tages (Tage ohne Wiegung fehlen), gewicht_7tage das Mittel der letzten 7 Tage.
+  Einzelwerte schwanken um ±1–2 kg; Trends nur über gewicht_7tage bzw. die Wochenmittel in review_data
+  bewerten. Für W/kg, Trends und Flüssigkeitsverlust bei langen Einheiten.
 - Running Tolerance (Fenix 8): garmin_profile(source="running_tolerance"), Verlauf in
   running_tolerance_history; zeigt, wie viel Laufbelastung der Bewegungsapparat gerade verträgt.
 - Coaching: get_plan liefert Brunos Trainingsplan und Wettkämpfe. Neue Einheiten ohne Bericht zeigt
@@ -246,7 +248,8 @@ def daily_metrics(start_date: str | None = None, end_date: str | None = None) ->
     Stress (Schnitt, Minuten je Stufe), Intensitätsminuten, Schritte,
     Trainingsbereitschaft morgens und abends mit Erholungszeit, Tagesbilanz, Regeneration über
     Nacht und Faktoren, Trainingsstatus mit akuter/chronischer Last, VO2max, Hitze-/Höhen-
-    akklimatisierung, Gewicht (kg, BMI, ggf. Körperfett/-wasser, Muskelmasse), Notizen."""
+    akklimatisierung, Gewicht (niedrigster Wert des Tages in kg, 7-Tage-Mittel, Differenz zur Vorwoche,
+    BMI, ggf. Körperfett/-wasser, Muskelmasse), Notizen."""
     return _call("daily_metrics", queries.daily_metrics, start_date=start_date, end_date=end_date)
 
 

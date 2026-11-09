@@ -250,9 +250,12 @@ def _weight_sensor(c) -> dict:
     row = c.execute("SELECT day, data FROM daily_raw WHERE source='weight' AND data IS NOT NULL "
                     "ORDER BY day DESC LIMIT 1").fetchone()
     w = queries._weight_out(_loads(row["data"])) if row else {}
+    ov = queries.weight_overview()
     return S("gewicht", "Gewicht", w.get("gewicht_kg"), "kg", "weight", M, "mdi:scale-bathroom",
              {"tag": row["day"] if row else None, "bmi": w.get("bmi"), "koerperfett_pct": w.get("koerperfett_pct"),
-              "muskelmasse_kg": w.get("muskelmasse_kg")})
+              "muskelmasse_kg": w.get("muskelmasse_kg"), "max_kg": w.get("gewicht_max_kg"),
+              "mittel_7_tage": ov.get("mittel_7_tage"), "mittel_vorwoche": ov.get("mittel_vorwoche"),
+              "differenz": ov.get("differenz"), "wochen": ov.get("wochen")})
 
 
 def _activity_sensor(c) -> dict:
