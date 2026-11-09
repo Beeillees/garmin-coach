@@ -56,8 +56,8 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 ## Trainings auf die Uhr (ab 0.9.0)
 
 Claude kann über `create_workout` strukturierte Laufeinheiten in Garmin Connect anlegen und
-einplanen. Die Fenix lädt sie beim nächsten Sync (Garmin-Connect-App am Handy). Die Trainings heißen
-„Coach: …“; nur diese darf der Coach löschen oder ersetzen. `list_workouts` zeigt alle geplanten
+einplanen. Die Fenix lädt sie beim nächsten Sync (Garmin-Connect-App am Handy). Trainings des Coaches
+tragen `[garmin-coach]` in der Beschreibung; nur diese darf er löschen oder ersetzen. `list_workouts` zeigt alle geplanten
 Trainings im Garmin-Kalender.
 
 ## Claude anbinden (MCP)

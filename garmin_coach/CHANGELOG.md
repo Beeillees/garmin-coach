@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1
+- Trainingsname ohne Präfix „Coach: …“ – erkannt werden Coach-Trainings jetzt nur an der
+  Markierung `[garmin-coach]` in der Beschreibung (Trainings aus 0.9.0 weiterhin).
+- Doppelte-Prüfung berücksichtigt nur Coach-Trainings.
+- Werkzeugbeschreibung enthält Brunos Vorlieben (Ein-/Auslaufen bis Runden-Taste, Pace mit
+  Spielraum, kein HF-Ziel, nur Qualitätseinheiten nach Zustimmung).
+
 ## 0.9.0
 - **Trainings direkt auf die Uhr:** neue MCP-Werkzeuge
   - `create_workout` – strukturierte Laufeinheit (Aufwärmen, Wiederholungen, Pausen, Pace- und

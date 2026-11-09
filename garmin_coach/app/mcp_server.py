@@ -1,8 +1,8 @@
 """MCP-Server: macht garmin.db für Claude zugänglich.
 
 Schreibend sind Notizen, Tagebuch, Trainingsplan, Wettkämpfe und Coach-Berichte. In Garmin Connect
-schreiben nur die Workout-Werkzeuge (create_workout, delete_workout), und nur Trainings mit dem
-Präfix "Coach: " – alles andere in Garmin bleibt unangetastet. Jeder Werkzeugaufruf wird mit Dauer,
+schreiben nur die Workout-Werkzeuge (create_workout, delete_workout), und nur Trainings mit der
+Markierung [garmin-coach] in der Beschreibung – alles andere in Garmin bleibt unangetastet. Jeder Werkzeugaufruf wird mit Dauer,
 Ergebnisgröße und Status protokolliert, im Add-on-Protokoll und in der Tabelle mcp_log.
 """
 
@@ -28,7 +28,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -480,7 +480,13 @@ async def create_workout(day: str, name: str, schritte: list[dict], beschreibung
                          vorschau: bool = False, ersetzen: bool = False) -> dict:
     """Strukturiertes Lauftraining in Garmin Connect anlegen und auf `day` (YYYY-MM-DD, heute bis
     +60 Tage) einplanen. Die Uhr lädt es beim nächsten Sync; Bruno sieht dann Schritte, Pace- und
-    HF-Alarme. Der Name bekommt automatisch das Präfix "Coach: ".
+    HF-Alarme. Name kurz und sprechend, z. B. "Schwelle 4×10" (wird so angezeigt); die Beschreibung
+    bekommt automatisch die Markierung [garmin-coach].
+
+    Brunos Vorlieben: Ein- und Auslaufen als bis_taste (er läuft ~15 min nach Gefühl und drückt
+    die Runden-Taste), Pace-Bereich mit Spielraum (Schwelle 3:55-4:15 statt 4:00-4:10), KEIN
+    HF-Ziel (die HF-Warnungen stören ihn), Trabpausen ohne Ziel. Nur Qualitätseinheiten schicken,
+    keine lockeren Läufe, und nur nach Brunos Zustimmung.
 
     schritte: Liste von Schritten, jeder mit
       typ: aufwaermen | lauf | intervall | erholung | pause | abwaermen
@@ -489,10 +495,10 @@ async def create_workout(day: str, name: str, schritte: list[dict], beschreibung
                 oder hf_zone 1–5, hinweis (kurzer Text, erscheint auf der Uhr)
       Mit pace und hf zugleich: Pace ist Hauptziel, HF Zweitziel.
     Wiederholung: {"wiederholen": 4, "schritte": [...], "letzte_pause_weglassen": true}
-    Beispiel Schwelle: [{"typ":"aufwaermen","distanz_km":2,"hf":"125-140"},
-      {"wiederholen":4,"schritte":[{"typ":"intervall","dauer_min":8,"pace":"4:00-4:10","hf":"160-172"},
+    Beispiel Schwelle: [{"typ":"aufwaermen","bis_taste":true,"hinweis":"ca. 15 min locker"},
+      {"wiederholen":4,"schritte":[{"typ":"intervall","dauer_min":10,"pace":"3:55-4:15"},
                                    {"typ":"erholung","dauer_min":2}]},
-      {"typ":"abwaermen","distanz_km":2}]
+      {"typ":"abwaermen","bis_taste":true,"hinweis":"ca. 15 min locker"}]
 
     vorschau=True: nur prüfen und anzeigen, nichts an Garmin senden.
     Gleicher Name am selben Tag schon geplant: Status schon_vorhanden; ersetzen=True löscht das alte
@@ -513,7 +519,7 @@ async def list_workouts(start_date: str | None = None, end_date: str | None = No
 @server.tool(annotations=DELETE)
 async def delete_workout(workout_id: int) -> dict:
     """Training des Coaches aus Garmin Connect löschen (Vorlage und Termin). Trainings ohne
-    Präfix "Coach: " werden abgelehnt."""
+    Markierung [garmin-coach] (Brunos eigene, andere Apps) werden abgelehnt."""
     return await asyncio.to_thread(_call, "delete_workout", workouts.delete, workout_id=workout_id)
 
 

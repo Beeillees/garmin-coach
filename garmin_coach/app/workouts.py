@@ -4,9 +4,9 @@ Der Coach beschreibt eine Einheit als einfache Schrittliste; dieses Modul baut d
 Workout-JSON von Garmin Connect, lädt es hoch und plant es auf ein Datum. Die Uhr holt es sich
 beim nächsten Sync.
 
-Sicherheit: Alle Trainings des Coaches tragen das Präfix PREFIX im Namen und MARKER in der
-Beschreibung. Löschen und Ersetzen funktionieren nur bei solchen Trainings, nie bei Brunos
-eigenen oder denen anderer Apps.
+Sicherheit: Alle Trainings des Coaches tragen MARKER am Ende der Beschreibung (der Name bleibt
+sauber, z. B. "Schwelle 4×10"). Löschen und Ersetzen funktionieren nur bei solchen Trainings,
+nie bei Brunos eigenen oder denen anderer Apps.
 
 Schrittformat (Liste von dicts):
     {"typ": "aufwaermen" | "lauf" | "intervall" | "erholung" | "pause" | "abwaermen",
@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 
 log = logging.getLogger("garmin_coach.workouts")
 
-PREFIX = "Coach: "
+LEGACY_PREFIX = "Coach: "  # Namenspräfix von 0.9.0, wird noch als Coach-Training erkannt
 MARKER = "[garmin-coach]"
 MAX_STEPS = 50
 DEFAULT_PACE_S = 330  # Annahme für die Dauer-Schätzung bei Distanz ohne Pace (5:30 min/km)
@@ -235,9 +235,9 @@ def build(name: str, schritte: list, beschreibung: str | None = None) -> dict:
     name = (name or "").strip()
     if not name:
         raise ValueError("name fehlt")
-    full_name = name if name.startswith(PREFIX) else PREFIX + name
+    full_name = name
     if len(full_name) > 80:
-        raise ValueError("name zu lang (max. ca. 70 Zeichen)")
+        raise ValueError("name zu lang (max. 80 Zeichen)")
     b = _Builder()
     steps = b.steps(schritte)
     descr = ((beschreibung or "").strip() + " " + MARKER).strip()[:1000]
@@ -304,7 +304,7 @@ def describe_steps(steps: list, indent: str = "") -> list[str]:
 # --- Garmin-Aufrufe --------------------------------------------------------------
 
 def _is_coach(w: dict) -> bool:
-    return str(w.get("workoutName") or "").startswith(PREFIX) or MARKER in str(w.get("description") or "")
+    return MARKER in str(w.get("description") or "") or str(w.get("workoutName") or "").startswith(LEGACY_PREFIX)
 
 
 def _check_day(day: str) -> str:
@@ -349,7 +349,7 @@ def _delete_coach_workout(g, workout_id: int) -> dict:
     if not w:
         raise ValueError(f"Training {workout_id} nicht gefunden")
     if not _is_coach(w):
-        raise PermissionError(f"'{w.get('workoutName')}' stammt nicht vom Coach und wird nicht angefasst")
+        raise PermissionError(f"'{w.get('workoutName')}' stammt nicht vom Coach (keine Markierung {MARKER}) und wird nicht angefasst")
     g.delete_workout(workout_id)
     log.info("Training gelöscht: %s (%s)", w.get("workoutName"), workout_id)
     return {"geloescht": w.get("workoutName"), "workout_id": workout_id}
@@ -375,7 +375,8 @@ def create(day: str, name: str, schritte: list, beschreibung: str | None = None,
         # Doppelte vermeiden: gleicher Name am selben Tag
         existing = [s for s in (g.get_scheduled_workouts_by_period(day, day) or [])
                     if s.get("calendarDate") == day
-                    and (s.get("workout") or {}).get("workoutName") == payload["workoutName"]]
+                    and (s.get("workout") or {}).get("workoutName") == payload["workoutName"]
+                    and _is_coach(s.get("workout") or {})]
         replaced = []
         if existing:
             if not ersetzen:
