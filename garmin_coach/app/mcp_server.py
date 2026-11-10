@@ -48,8 +48,13 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
 - Einheiten in den Antworten: km, Minuten, Pace in min/km, Kadenz in Schritten/min (Laufen).
 - In der Datenbank (für query_sql): Tempo in m/s, Distanz in m, Zeiten in s,
   Schrittlänge/vertikale Bewegung in mm, Bodenkontakt in ms.
-- Sportarten: Feld sport_gruppe (laufen, rad, schwimmen, kraft_hiit, gehen, kein_sport, sonstiges);
-  in query_sql als Funktion sport_gruppe(type_key, fit_sport).
+- Sportarten: Feld sport_gruppe (laufen, rad, schwimmen, kraft_hiit, treppe, gehen, kein_sport,
+  sonstiges); in query_sql als Funktion sport_gruppe(type_key, fit_sport).
+- Treppe (floor_climbing) ist eine eigene Gruppe und zählt als Höhenmeter-Training: hoehenmeter =
+  Stockwerke × 3,048 m (Garmins Schätzung, die FIT-Datei enthält dort keine Höhenmeter). In query_sql
+  steht dafür treppen_hm(a.data) bereit; fit_sessions.ascent_m ist bei Treppe nicht brauchbar.
+  Laufband-Einheiten haben keine Höhenmeter. Für TGC zählt Vertikal = Laufen + Gehen + Treppe
+  (review_data: Block 'vertikal').
 - Einheiten ohne FIT-Auswertung haben Werte aus Garmin Connect (quelle = garmin_json).
 - Drift (Pa:HR) ist nur bei gleichmäßigen Läufen aussagekräftig (tempo_cv_pct klein, etwa < 8 %).
 - Trainingsbereitschaft: 'bereitschaft' = Wert nach dem Aufwachen, 'bereitschaft_abend' = letzter
@@ -206,7 +211,7 @@ def list_activities(start_date: str | None = None, end_date: str | None = None,
     Pace, Last, Trainingseffekt, Pulszonen usw. (aus Garmin Connect, quelle = garmin_json).
 
     start_date/end_date im Format YYYY-MM-DD (lokales Datum, beide inklusive).
-    sport: Gruppe (laufen, rad, schwimmen, kraft_hiit, gehen, kein_sport, sonstiges) oder
+    sport: Gruppe (laufen, rad, schwimmen, kraft_hiit, treppe, gehen, kein_sport, sonstiges) oder
     Garmin-Typ (z. B. treadmill_running, hiit). limit max. 500.
     Leere Werte werden weggelassen.
     """
@@ -471,7 +476,8 @@ def query_sql(sql: str) -> dict:
     (Sekundenwerte, t = Sekunden seit Start), activities (data = Garmin-JSON), daily_raw
     (Tageswerte als JSON, mit json_extract auslesbar), garmin_snapshots, notes, coach_plan, races,
     coach_reports, sync_log, mcp_log.
-    Funktion sport_gruppe(type_key, fit_sport). Erst describe_schema aufrufen, wenn Spalten unklar sind.
+    Funktionen sport_gruppe(type_key, fit_sport) und treppen_hm(a.data) (Höhenmeter einer
+    Treppen-Einheit). Erst describe_schema aufrufen, wenn Spalten unklar sind.
     """
     return _call("query_sql", queries.run_sql, sql=sql)
 

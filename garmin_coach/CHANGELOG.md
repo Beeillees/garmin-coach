@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.3
+- **Treppe zählt jetzt als Höhenmeter-Training.** `floor_climbing`/`stair_climbing` ist eine eigene
+  Sportart-Gruppe `treppe` (bisher `kraft_hiit`). Die Höhenmeter kommen aus Garmins Stockwerken
+  (`floorsClimbed` × 3,048 m); die FIT-Datei enthält dort nur barometrisches Rauschen (0–30 m pro
+  Einheit, tatsächlich rund 800–870 Hm pro Stunde).
+- `list_activities`, `get_activity`, `weekly_summary` und `review_data` liefern für Treppe die
+  richtigen `hoehenmeter` und zusätzlich `stockwerke`.
+- `review_data`: neuer Block `vertikal` (Höhenmeter Laufen + Gehen + Treppe, Lauf-Hm pro km).
+- `query_sql`: neue Funktion `treppen_hm(a.data [, s.ascent_m])`.
+- Laufband-Einheiten haben weiterhin keine Höhenmeter (die Steigung steht nicht in den Daten).
+
 ## 0.9.2
 - **Gewicht als Tageswert = niedrigster Wert des Tages** (bisher der zuletzt eingetragene). Bei mehreren
   Wiegungen steht der höchste Wert zusätzlich in `gewicht_max_kg`.

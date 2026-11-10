@@ -19,12 +19,30 @@ GROUPS = {
     "schwimmen": {"lap_swimming", "open_water_swimming", "swimming"},
     "kraft_hiit": {
         "hiit", "strength_training", "indoor_rowing", "rowing", "cross_country_indoor_skiing",
-        "floor_climbing", "indoor_climbing", "bouldering", "cardio_training", "fitness_equipment",
-        "elliptical", "stair_climbing", "jump_rope", "pilates", "indoor_cardio",
+        "indoor_climbing", "bouldering", "cardio_training", "fitness_equipment",
+        "elliptical", "jump_rope", "pilates", "indoor_cardio",
     },
+    # Treppe (Stairmaster, Treppenhaus): eigene Gruppe, weil sie Höhenmeter liefert
+    "treppe": {"floor_climbing", "stair_climbing"},
     "gehen": {"walking", "hiking", "casual_walking", "speed_walking", "mountaineering"},
     "kein_sport": {"breathwork", "meditation", "yoga_breathing"},
 }
+
+# Garmin zählt beim Treppensteigen Stockwerke statt Höhenmeter; ein Stockwerk sind 10 Fuß.
+FLOOR_M = 3.048
+
+
+def stair_ascent(js: dict | None, fit_ascent=None):
+    """Höhenmeter einer Treppen-Einheit: Stockwerke × 3,048 m (Garmins eigene Umrechnung).
+
+    Die FIT-Datei enthält dort nur das barometrische Rauschen (0–30 m). Liegt der gemessene
+    Wert höher (echtes Treppenhaus mit Barometer), gilt der größere von beiden.
+    """
+    floors = (js or {}).get("floorsClimbed")
+    est = floors * FLOOR_M if isinstance(floors, (int, float)) and floors > 0 else None
+    vals = [v for v in (est, fit_ascent) if isinstance(v, (int, float))]
+    return round(max(vals), 1) if vals else None
+
 
 # Gruppen, die nicht in Trainingsumfänge und -last gehören
 NO_TRAINING = {"kein_sport"}

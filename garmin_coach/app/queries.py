@@ -26,6 +26,17 @@ def _sport_group_sql(type_key, fit_sport=None):
     return sports.group(type_key, fit_sport)
 
 
+def _stair_ascent_sql(data, fit_ascent=None):
+    """treppen_hm(a.data [, s.ascent_m]): Höhenmeter aus Stockwerken, sonst NULL."""
+    try:
+        js = json.loads(data) if data else {}
+    except (TypeError, ValueError):
+        js = {}
+    if not isinstance(js, dict) or not js.get("floorsClimbed"):
+        return None
+    return sports.stair_ascent(js, fit_ascent)
+
+
 @contextmanager
 def connect(db_file: Path = None):
     path = Path(db_file or DB_FILE)
@@ -37,6 +48,8 @@ def connect(db_file: Path = None):
     # sport_gruppe(type_key [, fit_sport]) steht auch in query_sql zur Verfügung
     conn.create_function("sport_gruppe", 1, _sport_group_sql, deterministic=True)
     conn.create_function("sport_gruppe", 2, _sport_group_sql, deterministic=True)
+    conn.create_function("treppen_hm", 1, _stair_ascent_sql, deterministic=True)
+    conn.create_function("treppen_hm", 2, _stair_ascent_sql, deterministic=True)
     deadline = time.monotonic() + QUERY_TIMEOUT_S
     conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10000)
     try:
@@ -381,6 +394,9 @@ def _merged(r, js: dict) -> dict:
     vo_mm = _first_not_none(r["avg_vo_mm"],
                             js.get("avgVerticalOscillation") and js["avgVerticalOscillation"] * 10)
     zones = _fit_zones_1_5(r["time_in_hr_zone"]) if has_fit else None
+    ascent = _first_not_none(r["ascent_m"], js.get("elevationGain"))
+    if g == "treppe":
+        ascent = sports.stair_ascent(js, ascent)
     return {
         "group": g, "has_fit": has_fit,
         "distance_m": _first_not_none(r["s_distance_m"], js.get("distance"), r["a_distance_m"]),
@@ -392,7 +408,8 @@ def _merged(r, js: dict) -> dict:
         "cadence": _first_not_none(r["avg_cadence"], _cadence_from_json(js, g)),
         "power": _first_not_none(r["avg_power"], js.get("avgPower")),
         "np": _first_not_none(r["normalized_power"], js.get("normPower")),
-        "ascent": _first_not_none(r["ascent_m"], js.get("elevationGain")),
+        "ascent": ascent,
+        "floors": js.get("floorsClimbed") if g == "treppe" else None,
         "descent": _first_not_none(r["descent_m"], js.get("elevationLoss")),
         "te_aerobic": _first_not_none(r["te_aerobic"], js.get("aerobicTrainingEffect")),
         "te_anaerobic": _first_not_none(r["te_anaerobic"], js.get("anaerobicTrainingEffect")),
@@ -453,6 +470,7 @@ def list_activities(start_date=None, end_date=None, sport=None, limit=50, db_fil
             "pace_gap": pace(m["gap_speed"]) if run else None,
             "hf_avg": m["avg_hr"], "hf_max": m["max_hr"],
             "kadenz": _r(m["cadence"], 0), "watt": _r(m["power"], 0), "hoehenmeter": _r(m["ascent"], 0),
+            "stockwerke": _r(m["floors"], 0),
             "te_aerob": _r(m["te_aerobic"]), "te_anaerob": _r(m["te_anaerobic"]),
             "te_label": js.get("trainingEffectLabel"), "last": _r(m["load"], 0),
             "body_battery_diff": js.get("differenceBodyBattery"),
@@ -554,7 +572,9 @@ def get_activity(activity_id: int, db_file=None) -> dict:
             "schrittlaenge_m": _r(s["avg_step_length_mm"] and s["avg_step_length_mm"] / 1000, 2),
             "bodenkontakt_ms": _r(s["avg_gct_ms"], 0), "vert_bewegung_cm": _r(s["avg_vo_mm"] and s["avg_vo_mm"] / 10),
             "vert_verhaeltnis_pct": _r(s["avg_vr_pct"]), "atemfrequenz": _r(s["avg_resp"]),
-            "hoehenmeter_auf": s["ascent_m"], "hoehenmeter_ab": s["descent_m"], "temperatur": s["avg_temp"],
+            "hoehenmeter_auf": sports.stair_ascent(js, s["ascent_m"]) if group == "treppe" else s["ascent_m"],
+            "hoehenmeter_ab": s["descent_m"], "temperatur": s["avg_temp"],
+            "stockwerke": js.get("floorsClimbed") if group == "treppe" else None,
             "kalorien": s["calories"], "te_aerob": s["te_aerobic"], "te_anaerob": s["te_anaerobic"],
             "trainingslast": _r(s["training_load"], 0), "rpe": s["rpe"], "gefuehl": s["feel"],
             "schwellen_hf": s["threshold_hr"], "ruhe_hf": s["resting_hr"],
@@ -1389,6 +1409,28 @@ def _volume(acts: list) -> dict:
                        "last": round(total["last"])}, "sportarten": out}
 
 
+def _vertical(acts: list) -> dict | None:
+    """Höhenmeter über alle Einheiten, die bergauf gehen: Laufen, Gehen und Treppe."""
+    hm = {g: 0.0 for g in ("laufen", "gehen", "treppe")}
+    run_km = 0.0
+    for a in acts:
+        g = a.get("sport_gruppe")
+        if g in hm:
+            hm[g] += a.get("hoehenmeter") or 0
+        if g == "laufen":
+            run_km += a.get("km") or 0
+    total = sum(hm.values())
+    if not total:
+        return None
+    return _clean({
+        "hoehenmeter_gesamt": round(total),
+        "laufen": round(hm["laufen"]) or None, "gehen": round(hm["gehen"]) or None,
+        "treppe": round(hm["treppe"]) or None,
+        "lauf_hm_pro_km": round(hm["laufen"] / run_km, 1) if run_km else None,
+        "hinweis": "Treppe = Stockwerke × 3,048 m (Garmin-Schätzung); Laufband ohne Höhenmeter.",
+    })
+
+
 def _recovery(days: list) -> dict:
     sleep = [d.get("schlaf_h") for d in days if d.get("schlaf_h")]
     last = days[-1] if days else {}
@@ -1498,6 +1540,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
             "laengster_km": max([a.get("km") or 0 for a in runs], default=None),
             "hoehenmeter": round(sum(a.get("hoehenmeter") or 0 for a in runs)) or None,
         }),
+        "vertikal": _vertical(acts),
         "schluesseleinheiten": key_sessions,
         "erholung": _recovery(days),
         "erholung_vorperiode": _recovery(prev_days),
@@ -1536,7 +1579,9 @@ def schema(db_file=None) -> dict:
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
         out = {t: [f"{col[1]} {col[2]}".strip() for col in c.execute(f"PRAGMA table_info({t})")] for t in tables}
     out["_funktionen"] = ["sport_gruppe(type_key [, fit_sport]) -> laufen | rad | schwimmen | kraft_hiit | "
-                          "gehen | kein_sport | sonstiges"]
+                          "treppe | gehen | kein_sport | sonstiges",
+                          "treppen_hm(activities.data [, fit_sessions.ascent_m]) -> Höhenmeter einer "
+                          "Treppen-Einheit (Stockwerke × 3,048 m), sonst NULL"]
     return out
 
 
