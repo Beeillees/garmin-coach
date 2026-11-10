@@ -10,6 +10,15 @@
 - `review_data`: neuer Block `vertikal` (Höhenmeter Laufen + Gehen + Treppe, Lauf-Hm pro km).
 - `query_sql`: neue Funktion `treppen_hm(a.data [, s.ascent_m])`.
 - Laufband-Einheiten haben weiterhin keine Höhenmeter (die Steigung steht nicht in den Daten).
+- Dashboard (in Home Assistant, nicht im Add-on): neuer Tab **TGC** mit dem SQL-Sensor
+  `sensor.garmin_coach_tgc` (Tage bis zum nächsten A-Rennen; Attribute `wochen` =
+  `[Montag, Lauf-km, Hm Lauf, Hm Treppe, längster Lauf km, Wochenende h, Zeit auf den Beinen h, Läufe]`
+  und `form` = `[Tag, Pace in s/km bei HF 138 auf flachen Kilometern, HF, km]`) sowie den Helfern
+  `input_number.garmin_ziel_wochen_km` und `input_number.garmin_ziel_hm_pro_km`.
+- Dashboard: Recovery-Tab bewertet nach HRV gegen Basisbereich, Ruhepuls gegen den 28-Tage-Schnitt
+  und Infektzeichen; Garmin-Rechenwerte stehen nur noch als Hintergrund darunter.
+  `sensor.garmin_coach_tageswerte` hat dafür drei Spalten mehr: 19/20 = HRV-Basis unten/oben,
+  21 = Abweichung der Hauttemperatur.
 
 ## 0.9.2
 - **Gewicht als Tageswert = niedrigster Wert des Tages** (bisher der zuletzt eingetragene). Bei mehreren
