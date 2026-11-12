@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0
+- **Wochenhistorie seit 2022** (Tabelle `history_weeks`): je Kalenderwoche Recovery (HRV mit
+  Basisbereich, Ruhepuls, Gewicht, Bereitschaft, Body Battery, VO2max), Schlaf pro Nacht (Dauer, Bedarf,
+  Phasen, Schlafwert), Laufen (km, Stunden, Pace, längster Lauf, Höhenmeter Lauf und Treppe, Formmarker)
+  und HF-Zonen-Minuten je Sportgruppe. Neu berechnet beim Start und nach jedem vollen Sync.
+- Neues Werkzeug `jahres_historie(jahr)`: Wochenwerte, Jahresbilanz und Vorjahr bis zur gleichen
+  Kalenderwoche.
+- `review_data`: neuer Block `vorjahr` (gleiche Woche bzw. gleicher Monat im Vorjahr).
+- HA-Sensoren `sensor.garmin_coach_historie` (verfügbare Jahre), `sensor.garmin_coach_historie_<jahr>`
+  (Attribut `wochen` = `[kw, *spalten]`) und `sensor.garmin_coach_historie_zonen_<jahr>` (je Gruppe
+  G/L/S/H/A `[kw, z1..z5]` in Minuten) für das Dashboard „Garmin History".
+
 ## 0.9.3
 - **Treppe zählt jetzt als Höhenmeter-Training.** `floor_climbing`/`stair_climbing` ist eine eigene
   Sportart-Gruppe `treppe` (bisher `kraft_hiit`). Die Höhenmeter kommen aus Garmins Stockwerken

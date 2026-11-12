@@ -1,5 +1,5 @@
 name: Garmin Coach
-version: "0.9.3"
+version: "0.10.0"
 slug: garmin_coach
 description: Speichert und analysiert Garmin-Aktivitäten (FIT) und tägliche Health-Werte lokal in SQLite.
 url: https://github.com/Beeillees/garmin-coach

@@ -1273,6 +1273,20 @@ def _period_range(kind: str, period: str = None) -> tuple:
     return period, start, end
 
 
+def _same_period_last_year(kind: str, start: date, end: date):
+    """(Periode, von, bis) derselben Kalenderwoche bzw. desselben Monats im Vorjahr, sonst None."""
+    try:
+        if kind == "woche":
+            y, w, _ = start.isocalendar()
+            s = date.fromisocalendar(y - 1, w, 1)
+            return f"{y - 1}-W{w:02d}", s.isoformat(), (s + timedelta(days=6)).isoformat()
+        s = start.replace(year=start.year - 1)
+        e = (s.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        return s.strftime("%Y-%m"), s.isoformat(), e.isoformat()
+    except ValueError:  # KW 53 gibt es nicht in jedem Jahr
+        return None
+
+
 def _previous_period(kind: str, start: date) -> str:
     if kind == "woche":
         y, w, _ = (start - timedelta(days=7)).isocalendar()
@@ -1530,9 +1544,13 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
     reports = [_clean({"art": r["kind"], "tag": r["day"], "activity_id": r["activity_id"],
                        "zusammenfassung": r["summary"]}) for r in reps
                if kind == "woche" or r["kind"] in ("woche", "training")]
+    ly = _same_period_last_year(kind, start, end)
+    ly_acts = list_activities(ly[1], ly[2], limit=500, db_file=db_file) if ly else []
+    ly_days = daily_metrics(ly[1], ly[2], db_file=db_file) if ly else []
     out = {
         "zeitraum": {"art": kind, "periode": per, "von": s, "bis": e,
-                     "tage_mit_daten": len(days), "vorperiode": prev},
+                     "tage_mit_daten": len(days), "vorperiode": prev,
+                     "vorjahr": ly[0] if ly else None},
         "umfang": _volume(acts),
         "umfang_vorperiode": _volume(prev_acts),
         "laufen": _clean({
@@ -1544,6 +1562,11 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
         "schluesseleinheiten": key_sessions,
         "erholung": _recovery(days),
         "erholung_vorperiode": _recovery(prev_days),
+        "vorjahr": _clean({
+            "periode": ly[0], "umfang": _volume(ly_acts),
+            "laufen_km": round(sum(a.get("km") or 0 for a in ly_acts if a.get("sport_gruppe") == "laufen"), 1),
+            "erholung": _recovery(ly_days),
+        }) if ly and (ly_acts or ly_days) else None,
         "gewicht": _weight_compare(days, prev_days) or None,
         "tagebuch": diary,
         "notizen": [_note_text(n) for n in notes],

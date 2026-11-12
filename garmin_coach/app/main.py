@@ -14,6 +14,7 @@ from garminconnect import Garmin
 
 import fit_store
 import ha_setup
+import history
 import scheduler
 import workouts
 from db import Store
@@ -200,12 +201,15 @@ def sync_worker(opts: dict) -> None:
                     fit_store.process_pending(store, DATA_DIR)
                 except Exception as e:
                     log.error("FIT-Auswertung fehlgeschlagen: %s", e)
+            if "fehler" not in result and kind == "voll":
+                _rebuild_history()
             if "fehler" not in result and (kind == "voll" or result.get("neue_fit") or result.get("live")):
                 ha_setup.notify_update(kind if kind == "voll" or result.get("neue_fit") else "live")
             return result
         finally:
             scheduler.set_busy(False)
 
+    _rebuild_history()  # sofort mit den vorhandenen Daten, der volle Sync rechnet danach erneut
     run("voll")  # beim Start einmal alles holen
     while True:
         due, kind = schedule.next_run(datetime.now())
@@ -216,6 +220,16 @@ def sync_worker(opts: dict) -> None:
             scheduler.finish(req, run(req.kind))
         elif datetime.now() >= due:
             run(kind)
+
+
+def _rebuild_history() -> None:
+    """Wochenhistorie für Dashboard 'Garmin History' und Coach neu berechnen (wenige Sekunden)."""
+    try:
+        t0 = time.monotonic()
+        n = history.rebuild(DB_FILE)
+        log.info("Wochenhistorie neu berechnet: %d Wochen in %.1f s", n, time.monotonic() - t0)
+    except Exception as e:
+        log.error("Wochenhistorie nicht berechnet: %s", e)
 
 
 def _thread(name: str, target, *args) -> None:

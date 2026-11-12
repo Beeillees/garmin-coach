@@ -19,6 +19,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
+import history
 import queries
 import scheduler
 import workouts
@@ -28,7 +29,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -78,6 +79,10 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   Immer original = Brunos Nachricht im Wortlaut mitgeben, text = deine Zusammenfassung.
 - Rückblicke: review_data(kind=woche|monat) liefert alles für einen Wochen-/Monatsrückblick in
   einem Abruf; danach save_report(kind=woche|monat, period=…). pending_reports zeigt, ob sie fehlen.
+  Block 'vorjahr' = dieselbe Kalenderwoche bzw. derselbe Monat im Vorjahr (Umfang, Laufen, Erholung).
+- Jahresvergleich: jahres_historie(jahr) liefert Wochenwerte seit 2022 (Recovery, Schlaf, Laufen,
+  HF-Zonen, VO2max, Formmarker) mit Jahresbilanz und Vorjahr bis zur gleichen Kalenderwoche.
+  Dieselben Zahlen zeigt das HA-Dashboard 'Garmin History'.
 - Aktuelle Daten: sync_now (schnell = nur neue Aktivitäten, voll = alles). Sonst läuft der Sync
   zu festen Zeiten plus Schnellprüfung tagsüber.
 - Trainings auf die Uhr: create_workout legt eine strukturierte Laufeinheit (Schritte mit Pace-/HF-Ziel)
@@ -433,6 +438,17 @@ def review_data(kind: str = "woche", period: str | None = None) -> dict:
     Zeitraums, letzter Rückblick derselben Art, Trainingsplan und kommende Wettkämpfe.
     Woche: Tagesübersicht; Monat: Übersicht je Woche."""
     return _call("review_data", queries.review_data, kind=kind, period=period)
+
+
+@server.tool(annotations=READ_ONLY)
+def jahres_historie(jahr: int | None = None, bis_kw: int | None = None) -> dict:
+    """Wochenwerte eines Jahres (Standard: laufendes Jahr) für Jahresvergleiche, Daten ab 2022.
+    Je Kalenderwoche: HRV mit Basisbereich, Ruhepuls, Gewicht, Bereitschaft, Body Battery, VO2max,
+    Schlaf pro Nacht (Dauer, Bedarf, Phasen, Schlafwert), Laufen (km, Stunden, Pace, längster Lauf,
+    Höhenmeter Lauf und Treppe, Formmarker Pace bei HF 138) und HF-Zonen-Minuten je Sportgruppe.
+    Dazu die Jahresbilanz bis bis_kw (Standard: letzte Woche mit Daten), das Vorjahr bis zur gleichen
+    Kalenderwoche und das ganze Vorjahr. Berechnet nach jedem vollen Sync."""
+    return _call("jahres_historie", history.year_report, jahr=jahr, bis_kw=bis_kw)
 
 
 @server.tool(annotations=READ_ONLY)

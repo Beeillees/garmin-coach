@@ -11,6 +11,7 @@ ist der Zustand None (in HA "unbekannt"), das Attribut 'tag' zeigt, worauf sich 
 
 from datetime import date, datetime, timezone
 
+import history
 import queries
 from queries import _clean, _dig, _first_not_none as _first, _loads, _r, connect
 
@@ -346,6 +347,32 @@ def _sync_sensor(c) -> dict:
              icon="mdi:cloud-sync", attributes={"art": row["kind"], "meldung": row["message"]} if row else None)
 
 
+def _history_sensors(c) -> list:
+    """Je Jahr ein Sensor mit den Wochenwerten (Attribut 'wochen': [kw, *spalten]) und einer mit den
+    HF-Zonen (Attribut je Gruppe: [kw, z1..z5] in Minuten). Getrennt, damit beide unter der
+    Attribut-Grenze des HA-Recorders (16 KB) bleiben."""
+    weeks = history.load(c)
+    if not weeks:
+        return []
+    by_year = {}
+    for w in weeks:
+        by_year.setdefault(w["jahr"], []).append(w)
+    out = [S("historie", "Historie", max(by_year), icon="mdi:history",
+             attributes={"jahre": sorted(by_year), "spalten": list(history.SPALTEN),
+                         "zonen_gruppen": list(history.ZONEN)})]
+    for jahr, ws in sorted(by_year.items()):
+        bil = history.summary(ws)
+        out.append(S(f"historie_{jahr}", f"Historie {jahr}", bil.get("lauf_km"), "km", None, None, "mdi:history",
+                     {"jahr": jahr, "spalten": list(history.SPALTEN),
+                      "wochen": [[w["kw"], *[w.get(k) for k in history.SPALTEN]] for w in ws],
+                      "bilanz": bil}))
+        zon = {g: [[w["kw"], *[round(x) for x in w["zonen"][g]]] for w in ws if (w.get("zonen") or {}).get(g)]
+               for g in history.ZONEN}
+        out.append(S(f"historie_zonen_{jahr}", f"Historie HF-Zonen {jahr}", len(ws), None, None, None,
+                     "mdi:heart-pulse", {"jahr": jahr, **{g: v for g, v in zon.items() if v}}))
+    return out
+
+
 def build() -> dict:
     today = date.today().isoformat()
     rows = queries.daily_metrics(today, today)
@@ -356,5 +383,6 @@ def build() -> dict:
         sensors += _training_sensors(c, row)
         sensors += [_weight_sensor(c), _activity_sensor(c), _diary_sensor(c), _sync_sensor(c)]
         sensors += _report_sensors(c)
+        sensors += _history_sensors(c)
     return {"erzeugt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "tag": today,
             "sensoren": sensors}
