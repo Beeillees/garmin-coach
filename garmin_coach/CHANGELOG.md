@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.0
+- **Tagebuch strukturiert**, damit sich Verläufe auswerten lassen. Neue Felder in `diary`:
+  `zeitpunkt` (morgens, nach_einheit, tagsueber, abends; ohne Angabe aus Einheit bzw. Uhrzeit
+  abgeleitet, alte Einträge beim Start nachgetragen), `motivation` (1–5, getrennt von Energie),
+  `infekt_grad` (0–3; 0 = ausdrücklich kein Infekt), `schmerzen` (Liste mit fester Körperstelle,
+  Seite, Stärke 0–10, Art), `kontext` (feste Stichworte wie sauna, reise, nass, laub,
+  kraft_ausgefallen, puls_oberarm), `kh_g`/`fluessigkeit_ml` als Gesamtmenge (g/h und ml/h rechnet der
+  Server aus der Dauer) und `stockwerke_geraet` (Treppe im Studio).
+- `log_diary` meldet unter `nachfragen`, was fehlt: morgens Beine und Energie, jede Schmerzangabe ohne
+  Stärke, Verpflegung nach Einheiten ab 2 h. `pending_reports` zeigt `tagebuch_morgen` (ok,
+  unvollständig, fehlt).
+- **Rückmeldungen zu Berichten** landen nicht mehr im Tagebuch: neues Werkzeug `report_feedback`,
+  Spalte `coach_reports.feedback`, `list_reports` zeigt sie.
+- **Wetter je Aktivität draußen** (Tabelle `activity_weather`): Open-Meteo-Stundenwerte über die Dauer
+  der Einheit (Temperatur mit Spanne, gefühlt, Luftfeuchte, Wind, Böen, Niederschlag, Schnee,
+  Wetterlage) plus Garmin-Wetterstation zum Start; dazu `extrem` (Frost, Hitze, Regen, Starkregen,
+  Schnee, starker Wind, Sturmböen, Gewitter, schwül). Neue Einheiten bekommen ihr Wetter direkt nach
+  dem Sync, die Historie seit 2022 wird mit jedem vollen Sync in Stücken von 250 Einheiten nachgeladen.
+  `get_activity` hat einen Block `wetter`, `list_activities` und `review_data` eine Kurzform,
+  `data_overview` den Stand. Die Temperatur aus der FIT-Datei misst die Uhr am Handgelenk und ist keine
+  Außentemperatur.
+- `daily_metrics`: neu `nickerchen_min` (von Garmin erkannter Mittagsschlaf) und `schlafbedarf_h`.
+- HA-Sensor `sensor.garmin_coach_tagebuch`: zusätzliche Attribute `zeitpunkt`, `motivation`,
+  `infekt_grad`, `schmerzen`, `kontext`, `kurz`.
+
 ## 0.10.0
 - **Wochenhistorie seit 2022** (Tabelle `history_weeks`): je Kalenderwoche Recovery (HRV mit
   Basisbereich, Ruhepuls, Gewicht, Bereitschaft, Body Battery, VO2max), Schlaf pro Nacht (Dauer, Bedarf,

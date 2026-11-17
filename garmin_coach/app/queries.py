@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import sports
+from db import zeitpunkt_aus
 
 DB_FILE = Path("/share/garmin-coach/garmin.db")
 
@@ -194,8 +195,31 @@ def delete_note(note_id: int, db_file=None) -> dict:
 
 # --- Tagebuch -----------------------------------------------------------------
 
-DIARY_FIELDS = ("beine", "energie", "infekt", "schmerz", "schmerz_staerke", "kh_g_pro_h",
-                "fluessigkeit_ml_pro_h", "text")
+DIARY_FIELDS = ("zeitpunkt", "beine", "energie", "motivation", "infekt_grad", "infekt", "schmerzen",
+                "schmerz", "schmerz_staerke", "kontext", "kh_g", "kh_g_pro_h", "fluessigkeit_ml",
+                "fluessigkeit_ml_pro_h", "stockwerke_geraet", "text")
+JSON_FIELDS = ("schmerzen", "kontext")
+
+ZEITPUNKTE = ("morgens", "nach_einheit", "tagsueber", "abends")
+INFEKT_GRADE = {0: "kein Infekt", 1: "leicht", 2: "deutlich", 3: "krank"}
+
+# Feste Körperstellen, damit sich Verläufe (z. B. Achillessehne) auswerten lassen
+SCHMERZ_ORTE = (
+    "achillessehne", "wade", "schienbein", "sprunggelenk", "fuss", "ferse", "zehen", "knie",
+    "oberschenkel_vorne", "hamstrings", "adduktoren", "hueftbeuger", "huefte", "leiste", "gesaess",
+    "it_band", "ruecken_unten", "ruecken_oben", "nacken", "schulter", "brust", "bauch", "ellbogen",
+    "unterarm", "handgelenk", "hand", "kopf", "sonstiges",
+)
+SCHMERZ_SEITEN = ("links", "rechts", "beidseits")
+
+# Feste Stichworte für Umstände, die Garmin nicht kennt (Wetter selbst kommt aus activity_weather)
+KONTEXT = (
+    "sauna", "reise", "spaet_ins_bett", "alkohol", "koffein_spaet", "viel_gegessen", "wenig_gegessen",
+    "carb_loading", "stress_arbeit", "stress_privat",
+    "kraft_ausgefallen", "kraft_hart", "kungfu_ausgefallen", "kungfu_hart", "dehnen", "massage",
+    "nass", "laub", "glatt", "matsch", "trail", "laufband", "winterkleidung",
+    "neue_schuhe", "neue_ausruestung", "puls_handgelenk", "puls_oberarm",
+)
 
 
 def _diary_between(c, start: str, end: str) -> list:
@@ -207,27 +231,58 @@ def _diary_between(c, start: str, end: str) -> list:
 
 def _diary_out(d: dict, original: bool = True) -> dict:
     """original=False lässt den Wortlaut weg (Rückblicke, damit die Antwort klein bleibt)."""
-    return _clean({"id": d["id"], "tag": d["day"], "activity_id": d.get("activity_id"),
-                   **{k: d.get(k) for k in DIARY_FIELDS},
+    vals = {k: d.get(k) for k in DIARY_FIELDS}
+    for k in JSON_FIELDS:
+        vals[k] = _loads(vals[k])
+    return _clean({"id": d["id"], "tag": d["day"], "activity_id": d.get("activity_id"), **vals,
                    "original": d.get("original") if original else None})
+
+
+def _pain_text(p: dict) -> str:
+    ort = (p.get("ort") or "").replace("_", " ")
+    txt = " ".join(x for x in (ort, p.get("seite")) if x)
+    if p.get("staerke") is not None:
+        txt += f" {p['staerke']}/10"
+    if p.get("art"):
+        txt += f" ({p['art']})"
+    return txt
 
 
 def _diary_short(d: dict) -> str:
     """Einzeilige Fassung für Tageswerte und Einheiten."""
     parts = []
+    zp = d.get("zeitpunkt")
+    if zp:
+        parts.append(zp.replace("_", " ").replace("tagsueber", "tagsüber"))
     if d.get("beine") is not None:
         parts.append(f"Beine {d['beine']}/5")
     if d.get("energie") is not None:
         parts.append(f"Energie {d['energie']}/5")
-    if d.get("infekt"):
-        parts.append(f"Infekt: {d['infekt']}")
-    if d.get("schmerz"):
+    if d.get("motivation") is not None:
+        parts.append(f"Motivation {d['motivation']}/5")
+    if d.get("infekt_grad") is not None or d.get("infekt"):
+        grad = INFEKT_GRADE.get(d.get("infekt_grad")) if d.get("infekt_grad") is not None else None
+        parts.append("Infekt: " + ", ".join(x for x in (grad, d.get("infekt")) if x))
+    pains = _loads(d.get("schmerzen")) or []
+    if pains:
+        parts.append("Schmerz: " + ", ".join(_pain_text(p) for p in pains))
+    elif d.get("schmerz"):
         st = f" ({d['schmerz_staerke']}/10)" if d.get("schmerz_staerke") is not None else ""
         parts.append(f"Schmerz: {d['schmerz']}{st}")
-    if d.get("kh_g_pro_h") is not None:
+    kontext = _loads(d.get("kontext")) or []
+    if kontext:
+        parts.append("Kontext: " + ", ".join(kontext))
+    if d.get("kh_g") is not None:
+        parts.append(f"{d['kh_g']:g} g KH" + (f" ({d['kh_g_pro_h']:g} g/h)" if d.get("kh_g_pro_h") is not None else ""))
+    elif d.get("kh_g_pro_h") is not None:
         parts.append(f"{d['kh_g_pro_h']:g} g KH/h")
-    if d.get("fluessigkeit_ml_pro_h") is not None:
+    if d.get("fluessigkeit_ml") is not None:
+        parts.append(f"{d['fluessigkeit_ml']:g} ml getrunken"
+                     + (f" ({d['fluessigkeit_ml_pro_h']:g} ml/h)" if d.get("fluessigkeit_ml_pro_h") is not None else ""))
+    elif d.get("fluessigkeit_ml_pro_h") is not None:
         parts.append(f"{d['fluessigkeit_ml_pro_h']:g} ml/h")
+    if d.get("stockwerke_geraet") is not None:
+        parts.append(f"{d['stockwerke_geraet']} Stockwerke laut Gerät")
     if d.get("text"):
         parts.append(d["text"])
     return "; ".join(parts)
@@ -242,33 +297,118 @@ def _check_range(name, v, lo, hi):
     return v
 
 
+def _check_pains(pains) -> str | None:
+    if pains is None:
+        return None
+    if isinstance(pains, dict):
+        pains = [pains]
+    if not isinstance(pains, list):
+        raise ValueError("schmerzen muss eine Liste von {ort, seite, staerke, art} sein")
+    out = []
+    for p in pains:
+        if not isinstance(p, dict):
+            raise ValueError("schmerzen: jeder Eintrag ist ein Objekt {ort, seite, staerke, art}")
+        ort = (p.get("ort") or "").strip().lower().replace(" ", "_").replace("ü", "ue").replace("ä", "ae") \
+            .replace("ö", "oe").replace("ß", "ss")
+        if ort not in SCHMERZ_ORTE:
+            raise ValueError(f"schmerzen.ort '{p.get('ort')}' unbekannt; erlaubt: {', '.join(SCHMERZ_ORTE)}")
+        seite = (p.get("seite") or "").strip().lower() or None
+        if seite and seite not in SCHMERZ_SEITEN:
+            raise ValueError(f"schmerzen.seite muss eine von {', '.join(SCHMERZ_SEITEN)} sein")
+        out.append(_clean({"ort": ort, "seite": seite,
+                           "staerke": _check_range("schmerzen.staerke", p.get("staerke"), 0, 10),
+                           "art": (p.get("art") or "").strip()[:100] or None}))
+    return json.dumps(out, ensure_ascii=False)
+
+
+def _check_kontext(tags) -> str | None:
+    if tags is None:
+        return None
+    if isinstance(tags, str):
+        tags = [t for t in tags.replace(";", ",").split(",")]
+    out = []
+    for t in tags:
+        t = (t or "").strip().lower().replace(" ", "_").replace("ü", "ue").replace("ä", "ae").replace("ö", "oe")
+        if not t:
+            continue
+        if t not in KONTEXT:
+            raise ValueError(f"kontext '{t}' unbekannt; erlaubt: {', '.join(KONTEXT)} (Rest in text)")
+        if t not in out:
+            out.append(t)
+    return json.dumps(out, ensure_ascii=False)
+
+
+def _per_hour(total, duration_s):
+    if total is None or not duration_s:
+        return None
+    return round(float(total) / (float(duration_s) / 3600), 1)
+
+
+def _diary_followups(row: dict, act_minutes=None, act_group=None) -> list:
+    """Was der Coach bei Bruno noch nachfragen sollte, damit die Daten vergleichbar bleiben."""
+    ask = []
+    zp = row.get("zeitpunkt")
+    if zp == "morgens":
+        for k in ("beine", "energie"):
+            if row.get(k) is None:
+                ask.append(k)
+    for p in _loads(row.get("schmerzen")) or []:
+        if p.get("staerke") is None:
+            ask.append(f"schmerz_staerke ({_pain_text(p).strip()})")
+    if row.get("schmerz") and not row.get("schmerzen"):
+        ask.append("schmerzen strukturiert (ort, seite, staerke)")
+    if zp == "nach_einheit" and act_minutes and act_minutes >= 120 and act_group in ("laufen", "gehen", "rad") \
+            and row.get("kh_g") is None and row.get("kh_g_pro_h") is None:
+        ask.append("verpflegung (kh_g, fluessigkeit_ml)")
+    return ask
+
+
 def log_diary(day: str = None, activity_id: int = None, beine: int = None, energie: int = None,
               infekt: str = None, schmerz: str = None, schmerz_staerke: int = None, kh_g_pro_h: float = None,
               fluessigkeit_ml_pro_h: float = None, text: str = None, entry_id: int = None,
-              original: str = None, original_anhaengen: bool = True, db_file=None) -> dict:
+              original: str = None, original_anhaengen: bool = True, zeitpunkt: str = None,
+              motivation: int = None, infekt_grad: int = None, schmerzen=None, kontext=None,
+              kh_g: float = None, fluessigkeit_ml: float = None, stockwerke_geraet: int = None,
+              db_file=None) -> dict:
+    zp = (zeitpunkt or "").strip().lower().replace("ü", "ue").replace(" ", "_") or None
+    if zp and zp not in ZEITPUNKTE:
+        raise ValueError(f"zeitpunkt muss einer von {', '.join(ZEITPUNKTE)} sein")
     vals = {
+        "zeitpunkt": zp,
         "beine": _check_range("beine", beine, 1, 5),
         "energie": _check_range("energie", energie, 1, 5),
+        "motivation": _check_range("motivation", motivation, 1, 5),
+        "infekt_grad": _check_range("infekt_grad", infekt_grad, 0, 3),
         "infekt": (infekt or "").strip()[:500] or None,
+        "schmerzen": _check_pains(schmerzen),
         "schmerz": (schmerz or "").strip()[:500] or None,
         "schmerz_staerke": _check_range("schmerz_staerke", schmerz_staerke, 0, 10),
+        "kontext": _check_kontext(kontext),
+        "kh_g": None if kh_g is None else float(kh_g),
         "kh_g_pro_h": None if kh_g_pro_h is None else float(kh_g_pro_h),
+        "fluessigkeit_ml": None if fluessigkeit_ml is None else float(fluessigkeit_ml),
         "fluessigkeit_ml_pro_h": None if fluessigkeit_ml_pro_h is None else float(fluessigkeit_ml_pro_h),
+        "stockwerke_geraet": None if stockwerke_geraet is None else int(stockwerke_geraet),
         "text": (text or "").strip()[:4000] or None,
     }
     orig = (original or "").strip()[:20000] or None
     now = _now_utc()
     with connect_rw(db_file) as c:
+        act = None
         if activity_id:
-            row = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
-            if not row:
+            act = c.execute("SELECT start_local, duration_s, type_key FROM activities WHERE activity_id=?",
+                            (int(activity_id),)).fetchone()
+            if not act:
                 raise ValueError(f"Aktivität {activity_id} nicht gefunden")
             if not day:
-                day = (row["start_local"] or "")[:10] or None
+                day = (act["start_local"] or "")[:10] or None
         if entry_id:
             old = c.execute("SELECT * FROM diary WHERE id=?", (int(entry_id),)).fetchone()
             if not old:
                 raise ValueError(f"Tagebucheintrag {entry_id} nicht gefunden")
+            if act is None and old["activity_id"]:
+                act = c.execute("SELECT start_local, duration_s, type_key FROM activities WHERE activity_id=?",
+                                (old["activity_id"],)).fetchone()
             changes = {k: v for k, v in vals.items() if v is not None}
             if orig:
                 # Wortlaut geht nie verloren: neuer Text wird standardmäßig angehängt
@@ -281,20 +421,36 @@ def log_diary(day: str = None, activity_id: int = None, beine: int = None, energ
                 changes["activity_id"] = int(activity_id)
             if not changes:
                 raise ValueError("Keine Änderung angegeben")
+        else:
+            if all(v is None for k, v in vals.items() if k != "zeitpunkt") and not orig:
+                raise ValueError("Leerer Eintrag: mindestens ein Feld angeben")
+            d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
+            if not vals["zeitpunkt"]:
+                vals["zeitpunkt"] = zeitpunkt_aus(d, activity_id, now)
+            changes = vals
+        # g/h aus der Gesamtmenge und der Dauer der Einheit, wenn nicht ausdrücklich angegeben
+        dur = act["duration_s"] if act else None
+        if changes.get("kh_g") is not None and vals["kh_g_pro_h"] is None:
+            changes["kh_g_pro_h"] = _per_hour(changes["kh_g"], dur)
+        if changes.get("fluessigkeit_ml") is not None and vals["fluessigkeit_ml_pro_h"] is None:
+            changes["fluessigkeit_ml_pro_h"] = _per_hour(changes["fluessigkeit_ml"], dur)
+        if entry_id:
             sets = ", ".join(f"{k}=?" for k in changes)
             c.execute(f"UPDATE diary SET {sets}, updated_at=? WHERE id=?", (*changes.values(), now, int(entry_id)))
             rid = int(entry_id)
         else:
-            if all(v is None for v in vals.values()) and not orig:
-                raise ValueError("Leerer Eintrag: mindestens ein Feld angeben")
-            d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
             vals["original"] = orig
             rid = c.execute(
                 f"INSERT INTO diary(day, activity_id, {', '.join(vals)}, created_at, updated_at) "
                 f"VALUES(?, ?, {', '.join('?' * len(vals))}, ?, ?)",
                 (d, int(activity_id) if activity_id else None, *vals.values(), now, now)).lastrowid
         row = dict(c.execute("SELECT * FROM diary WHERE id=?", (rid,)).fetchone())
-    return _diary_out(row)
+    out = _diary_out(row)
+    ask = _diary_followups(row, _min(act["duration_s"]) if act else None,
+                           sports.group(act["type_key"]) if act else None)
+    if ask:
+        out["nachfragen"] = ask
+    return out
 
 
 def list_diary(start_date=None, end_date=None, db_file=None) -> list:
@@ -330,6 +486,10 @@ def overview(db_file=None) -> dict:
         n_notes = one("SELECT COUNT(*) FROM notes")[0] if _table_exists(c, "notes") else 0
         snaps = (one("SELECT MAX(day), COUNT(DISTINCT source) FROM garmin_snapshots WHERE data IS NOT NULL")
                  if _table_exists(c, "garmin_snapshots") else (None, 0))
+        wx = (one("SELECT COUNT(*), SUM(status='ok'), SUM(status='teilweise'), SUM(status='fehler'), "
+                  "MIN(a.start_local) FROM activity_weather w JOIN activities a USING(activity_id)")
+              if _table_exists(c, "activity_weather") else None)
+        diary_n = (one("SELECT COUNT(*), MIN(day), MAX(day) FROM diary") if _table_exists(c, "diary") else None)
     groups = {}
     for r in rows:
         g = sports.group(r["type_key"], r["sport"])
@@ -354,6 +514,11 @@ def overview(db_file=None) -> dict:
         "sportarten": sport_list,
         "hinweis_sportarten": "Über alle Aktivitäten; nicht ausgewertete Einheiten mit Werten aus Garmin Connect.",
         "notizen": n_notes,
+        "tagebuch": {"eintraege": diary_n[0], "von": diary_n[1], "bis": diary_n[2]} if diary_n else None,
+        "wetter": {"einheiten": wx[0], "ok": wx[1] or 0, "teilweise": wx[2] or 0, "fehler": wx[3] or 0,
+                   "zurueck_bis": wx[4],
+                   "hinweis": "Nur Einheiten draußen; die Historie wird pro Sync in Stücken nachgeladen."}
+        if wx else None,
         "schnappschuesse": {"letzter_tag": snaps[0], "quellen": snaps[1]},
         "letzter_sync": dict(last_sync) if last_sync else None,
     }
@@ -424,6 +589,40 @@ def _merged(r, js: dict) -> dict:
     }
 
 
+def _weather_out(w) -> dict | None:
+    if not w:
+        return None
+    w = dict(w)
+    return _clean({
+        "temperatur_c": w.get("temp_c"), "temp_min_c": w.get("temp_min_c"), "temp_max_c": w.get("temp_max_c"),
+        "gefuehlt_c": w.get("gefuehlt_c"), "luftfeuchte_pct": _r(w.get("feuchte_pct"), 0),
+        "wind_kmh": _r(w.get("wind_kmh"), 0), "boeen_kmh": _r(w.get("boeen_kmh"), 0),
+        "niederschlag_mm": w.get("niederschlag_mm"), "schnee_cm": w.get("schnee_cm") or None,
+        "wetter": w.get("wetter"), "extrem": _loads(w.get("extrem")) or None, "station": w.get("station"),
+        "stand": w.get("status") if w.get("status") != "ok" else None,
+    })
+
+
+def _weather_short(w) -> str | None:
+    """Kurzform für Listen, z. B. '1 °C (gefühlt -3), Regen 2.1 mm, Wind 18 km/h, Böen 40 | Frost, Regen'."""
+    if not w or w["temp_c"] is None and w["niederschlag_mm"] is None:
+        return None
+    parts = []
+    if w["temp_c"] is not None:
+        t = f"{w['temp_c']:.0f} °C"
+        if w["gefuehlt_c"] is not None and abs(w["gefuehlt_c"] - w["temp_c"]) >= 2:
+            t += f" (gefühlt {w['gefuehlt_c']:.0f})"
+        parts.append(t)
+    if w["wetter"]:
+        parts.append(w["wetter"])
+    if w["niederschlag_mm"]:
+        parts.append(f"{w['niederschlag_mm']:g} mm")
+    if w["wind_kmh"] is not None:
+        parts.append(f"Wind {w['wind_kmh']:.0f} km/h" + (f", Böen {w['boeen_kmh']:.0f}" if w["boeen_kmh"] else ""))
+    ext = _loads(w["extrem"]) or []
+    return ", ".join(parts) + (f" | {', '.join(ext)}" if ext else "")
+
+
 _LIST_COLS = """
     a.activity_id, a.start_local, a.name, a.type_key, a.data AS a_data,
     a.distance_m AS a_distance_m, a.duration_s, a.avg_hr AS a_avg_hr, a.max_hr AS a_max_hr,
@@ -444,12 +643,16 @@ def list_activities(start_date=None, end_date=None, sport=None, limit=50, db_fil
     if sport:
         where.append("(sport_gruppe(a.type_key, s.sport) = ? OR a.type_key = ? OR s.sport = ?)")
         args += [sport.strip().lower()] * 3
-    sql = f"""SELECT {_LIST_COLS}
-        FROM activities a LEFT JOIN fit_sessions s ON s.activity_id = a.activity_id
-        WHERE {' AND '.join(where)}
-        ORDER BY a.start_local DESC LIMIT ?"""
-    args.append(min(int(limit or 50), 500))
     with connect(db_file) as c:
+        has_wx = _table_exists(c, "activity_weather")
+        wx_cols = ("w.temp_c, w.gefuehlt_c, w.wind_kmh, w.boeen_kmh, w.niederschlag_mm, w.wetter, w.extrem"
+                   if has_wx else "NULL AS temp_c")
+        wx_join = "LEFT JOIN activity_weather w ON w.activity_id = a.activity_id" if has_wx else ""
+        sql = f"""SELECT {_LIST_COLS}, {wx_cols}
+            FROM activities a LEFT JOIN fit_sessions s ON s.activity_id = a.activity_id {wx_join}
+            WHERE {' AND '.join(where)}
+            ORDER BY a.start_local DESC LIMIT ?"""
+        args.append(min(int(limit or 50), 500))
         rows = c.execute(sql, args).fetchall()
     out = []
     for r in rows:
@@ -481,6 +684,7 @@ def list_activities(start_date=None, end_date=None, sport=None, limit=50, db_fil
             "effizienz": r["efficiency"], "drift_pct": r["decoupling_pct"], "tempo_cv_pct": r["speed_cv_pct"],
             "zieltempo_treffer_pct": r["target_hit_pct"], "pulserholung_60s": r["hr_recovery_60s"],
             "bestzeit": True if js.get("pr") or js.get("isPR") else None,
+            "wetter": _weather_short(r) if has_wx else None,
         }))
     return out
 
@@ -548,6 +752,8 @@ def get_activity(activity_id: int, db_file=None) -> dict:
         lengths = c.execute("SELECT * FROM fit_lengths WHERE activity_id=? ORDER BY length_index", (activity_id,)).fetchall()
         sets = c.execute("SELECT * FROM fit_sets WHERE activity_id=? ORDER BY set_index", (activity_id,)).fetchall()
         err = c.execute("SELECT error FROM fit_errors WHERE activity_id=?", (activity_id,)).fetchone()
+        wx = c.execute("SELECT * FROM activity_weather WHERE activity_id=?", (activity_id,)).fetchone() \
+            if _table_exists(c, "activity_weather") else None
         notes = _notes_between(c, a["start_local"][:10], a["start_local"][:10]) if a and a["start_local"] else []
         diary = [d for d in _diary_between(c, a["start_local"][:10], a["start_local"][:10])
                  if d["activity_id"] in (None, activity_id)] if a and a["start_local"] else []
@@ -588,6 +794,8 @@ def get_activity(activity_id: int, db_file=None) -> dict:
         }
     if js:
         out["garmin"] = _garmin_summary(js, group)
+    if wx:
+        out["wetter"] = _weather_out(wx)
     if notes:
         out["notizen"] = [_note_text(n) for n in notes]
     if diary:
@@ -913,6 +1121,8 @@ def _daily_row(day: str, src: dict) -> dict:
         "schlaf_wach_min": _min(sleep_dto.get("awakeSleepSeconds")),
         "schlaf_beginn": _local_clock(sleep_dto.get("sleepStartTimestampLocal")),
         "schlaf_ende": _local_clock(sleep_dto.get("sleepEndTimestampLocal")),
+        "nickerchen_min": _min(sleep_dto.get("napTimeSeconds")) or None,
+        "schlafbedarf_h": _r((_dig(sleep_dto, "sleepNeed", "actual") or 0) / 60, 2) or None,
         "schlafwert": _dig(sleep_dto, "sleepScores", "overall", "value"),
         "schlaf_unruhe": _dig(sleep, "restlessMomentsCount"),
         "stress_schlaf": sleep_dto.get("avgSleepStress"),
@@ -1314,6 +1524,8 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
                                             (kind, per)).fetchone() is not None)
         last_sync = c.execute("SELECT started_at, finished_at, status, message FROM sync_log "
                               "ORDER BY id DESC LIMIT 1").fetchone()
+        morning_diary = c.execute("SELECT beine, energie FROM diary WHERE day=? AND zeitpunkt='morgens'",
+                                  (today.isoformat(),)).fetchall() if _table_exists(c, "diary") else []
     offen = []
     for a in acts:
         group = sports.group(a["type_key"], a["fit_sport"])
@@ -1326,6 +1538,9 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
         "einheiten_ohne_bericht": offen,
         "morgenbericht_fehlt": "morgen" not in done,
         "abendbericht_fehlt": "abend" not in done,
+        "tagebuch_morgen": ("fehlt" if not morning_diary else
+                            "unvollständig" if not any(r["beine"] is not None for r in morning_diary)
+                            or not any(r["energie"] is not None for r in morning_diary) else "ok"),
         "wochenbericht": {"zeitraum": periods["woche"][0], "fehlt": not periods["woche"][1]},
         "monatsbericht": {"zeitraum": periods["monat"][0], "fehlt": not periods["monat"][1]},
         "letzter_sync": dict(last_sync) if last_sync else None,
@@ -1390,7 +1605,36 @@ def list_reports(days: int = 14, kind: str = None, db_file=None) -> list:
         rows = c.execute(sql + " ORDER BY day DESC, id DESC", params).fetchall()
     return [_clean({"id": r["id"], "art": r["kind"], "tag": r["day"], "activity_id": r["activity_id"],
                     "zeitraum": r["period"] if "period" in r.keys() else None,
-                    "erstellt": r["created_at"], "zusammenfassung": r["summary"]}) for r in rows]
+                    "erstellt": r["created_at"], "zusammenfassung": r["summary"],
+                    "feedback": r["feedback"] if "feedback" in r.keys() else None}) for r in rows]
+
+
+def report_feedback(text: str, report_id: int = None, activity_id: int = None, kind: str = None,
+                    day: str = None, db_file=None) -> dict:
+    """Brunos Rückmeldung zu einem Bericht anhängen (was gefallen hat, was fehlt, was falsch war)."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Text darf nicht leer sein")
+    with connect_rw(db_file) as c:
+        if report_id:
+            row = c.execute("SELECT * FROM coach_reports WHERE id=?", (int(report_id),)).fetchone()
+        elif activity_id:
+            row = c.execute("SELECT * FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone()
+        else:
+            d = date.fromisoformat((day or date.today().isoformat())[:10]).isoformat()
+            sql, args = "SELECT * FROM coach_reports WHERE day=?", [d]
+            if kind:
+                sql += " AND kind=?"
+                args.append(kind.strip().lower())
+            row = c.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
+        if not row:
+            raise ValueError("Bericht nicht gefunden (report_id, activity_id oder kind/day angeben)")
+        stamp = datetime.now().strftime("%d.%m. %H:%M")
+        old = row["feedback"] if "feedback" in row.keys() else None
+        fb = f"{old}\n[{stamp}] {text}" if old else f"[{stamp}] {text}"
+        c.execute("UPDATE coach_reports SET feedback=? WHERE id=?", (fb[:8000], row["id"]))
+    return {"id": row["id"], "art": row["kind"], "tag": row["day"], "activity_id": row["activity_id"],
+            "feedback": fb}
 
 
 # --- Wochen- und Monatsrückblick ----------------------------------------------
@@ -1524,6 +1768,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
                 "hoehenmeter": a.get("hoehenmeter"), "last": a.get("last"), "te_aerob": a.get("te_aerob"),
                 "te_anaerob": a.get("te_anaerob"), "rpe": a.get("rpe"), "gefuehl": a.get("gefuehl"),
                 "drift_pct": a.get("drift_pct"), "zieltempo_treffer_pct": a.get("zieltempo_treffer_pct"),
+                "wetter": a.get("wetter"),
             }))
     per_day = []
     acts_by_day = {}
