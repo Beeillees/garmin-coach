@@ -29,7 +29,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -73,10 +73,28 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
 - Coaching: get_plan liefert Brunos Trainingsplan und Wettkämpfe. Neue Einheiten ohne Bericht zeigt
   pending_reports; nach einem Bericht save_report aufrufen, damit nichts doppelt ausgewertet wird.
   Die Kurzfassung (summary) erscheint im HA-Dashboard: schlankes Markdown ohne Tabellen, Aufbau siehe save_report.
-- Tagebuch (log_diary): was Garmin nicht misst – Beine (1 frisch … 5 sehr schwer), Energie
-  (1 leer … 5 top), Infektzeichen, Schmerz mit Körperstelle (0–10), Verpflegung g KH/h, Freitext.
-  Eintragen, wenn Bruno so etwas im Chat erzählt; erscheint in daily_metrics und get_activity.
-  Immer original = Brunos Nachricht im Wortlaut mitgeben, text = deine Zusammenfassung.
+- Tagebuch (log_diary): was Garmin nicht misst. Eintragen, wenn Bruno so etwas im Chat erzählt;
+  erscheint in daily_metrics und get_activity. Immer original = Brunos Nachricht im Wortlaut, text =
+  deine Zusammenfassung. Strukturierte Felder haben Vorrang vor Freitext, damit Verläufe auswertbar sind:
+  zeitpunkt (morgens | nach_einheit | tagsueber | abends) – Beine/Energie morgens und nach einer Einheit
+  sind verschiedene Messungen; beine 1–5, energie 1–5, motivation 1–5 (Lust/Antrieb, nicht Energie);
+  infekt_grad 0–3; schmerzen als Liste {ort, seite, staerke 0–10, art} mit festen Körperstellen;
+  kontext mit festen Stichworten (sauna, reise, nass, laub, kraft_ausgefallen …); Verpflegung als
+  Gesamtmenge kh_g / fluessigkeit_ml (g/h rechnet der Server aus der Dauer).
+  Pflichtfragen: Morgens immer Beine und Energie; jede Schmerzangabe mit Stärke. Fehlt etwas, steht es
+  in der Antwort unter 'nachfragen' – dann kurz bei Bruno nachfragen und mit entry_id ergänzen, nichts
+  schätzen. Sagt Bruno ausdrücklich, es ist nichts (kein Infekt, nichts zwickt), infekt_grad=0 bzw.
+  schmerzen=[] eintragen; leer heißt "nicht gefragt". pending_reports zeigt tagebuch_morgen.
+- Rückmeldung zu Berichten (Lob, Kritik, Wünsche zur Auswertung) gehört nicht ins Tagebuch, sondern
+  per report_feedback an den Bericht; list_reports zeigt sie, damit künftige Berichte sie beachten.
+- Wetter je Einheit draußen (Block 'wetter' in get_activity, Kurzform in list_activities und
+  review_data): Temperatur, gefühlt, Luftfeuchte, Wind, Böen, Niederschlag, Schnee, Wetterlage und
+  'extrem' (Frost, Hitze, Regen, Starkregen, Schnee, starker Wind, Sturmböen, Gewitter, schwül).
+  Quelle: Open-Meteo (Stundenwerte über die Dauer) plus Garmin-Wetterstation; Tabelle activity_weather.
+  Die 'temperatur' aus FIT bzw. Garmin (temperatur_min/max) misst die Uhr am Handgelenk und ist
+  körperwarm – nie als Außentemperatur verwenden. Bei Vergleichen (Puls im Winter, Bergsprints)
+  das Wetter mit einbeziehen.
+- Schlaf: nickerchen_min (Mittagsschlaf, von Garmin erkannt) und schlafbedarf_h stehen in daily_metrics.
 - Rückblicke: review_data(kind=woche|monat) liefert alles für einen Wochen-/Monatsrückblick in
   einem Abruf; danach save_report(kind=woche|monat, period=…). pending_reports zeigt, ob sie fehlen.
   Block 'vorjahr' = dieselbe Kalenderwoche bzw. derselbe Monat im Vorjahr (Umfang, Laufen, Erholung).
@@ -325,7 +343,10 @@ def log_diary(day: str | None = None, activity_id: int | None = None, beine: int
               schmerz_staerke: int | None = None, kh_g_pro_h: float | None = None,
               fluessigkeit_ml_pro_h: float | None = None, text: str | None = None,
               entry_id: int | None = None, original: str | None = None,
-              original_anhaengen: bool = True) -> dict:
+              original_anhaengen: bool = True, zeitpunkt: str | None = None, motivation: int | None = None,
+              infekt_grad: int | None = None, schmerzen: list[dict] | None = None,
+              kontext: list[str] | None = None, kh_g: float | None = None,
+              fluessigkeit_ml: float | None = None, stockwerke_geraet: int | None = None) -> dict:
     """Tagebucheintrag zu dem, was Garmin nicht misst. Eintragen, wenn Bruno es im Chat erzählt.
 
     original: IMMER mitgeben – Brunos Nachricht(en) dazu im Wortlaut, unverändert und ungekürzt
@@ -333,15 +354,39 @@ def log_diary(day: str | None = None, activity_id: int | None = None, beine: int
     das Rohmaterial. Beim Ergänzen mit entry_id wird original an den vorhandenen Wortlaut
     angehängt (original_anhaengen=False ersetzt ihn, nur zum Korrigieren auf Brunos Wunsch).
 
-    day YYYY-MM-DD (Standard heute; bei activity_id der Tag der Einheit). Alle Felder optional:
-    beine 1 (frisch) … 5 (sehr schwer); energie 1 (leer) … 5 (top); infekt: Symptome als Text;
-    schmerz: Körperstelle und Art, schmerz_staerke 0–10; kh_g_pro_h und fluessigkeit_ml_pro_h
-    bei langen Einheiten; text: alles Weitere in Brunos Worten. Mehrere Einträge pro Tag möglich.
-    Mit entry_id wird ein bestehender Eintrag ergänzt bzw. geändert (nur angegebene Felder)."""
+    day YYYY-MM-DD (Standard heute; bei activity_id der Tag der Einheit). Mehrere Einträge pro Tag.
+    zeitpunkt: morgens | nach_einheit | tagsueber | abends – worauf sich Beine/Energie beziehen.
+      Ohne Angabe: mit activity_id nach_einheit, sonst aus der Uhrzeit (bis 10 Uhr morgens, ab 18 Uhr
+      abends). Ein Morgengefühl, das Bruno erst nach dem Lauf erzählt, ist zeitpunkt=morgens ohne
+      activity_id; das Gefühl nach dem Lauf ein eigener Eintrag mit activity_id.
+    beine 1 (frisch) … 5 (sehr schwer); energie 1 (leer) … 5 (top); motivation 1 (null Bock) … 5
+      (heiß drauf) – getrennt von Energie, z. B. "fit, aber keine Lust" = energie 4, motivation 2.
+    infekt_grad 0 kein, 1 leicht, 2 deutlich, 3 krank; infekt: Symptome als Text.
+    schmerzen: Liste [{ort, seite, staerke, art}] – ort aus achillessehne, wade, schienbein,
+      sprunggelenk, fuss, ferse, zehen, knie, oberschenkel_vorne, hamstrings, adduktoren, hueftbeuger,
+      huefte, leiste, gesaess, it_band, ruecken_unten, ruecken_oben, nacken, schulter, brust, bauch,
+      ellbogen, unterarm, handgelenk, hand, kopf, sonstiges; seite links | rechts | beidseits;
+      staerke 0–10 (Pflicht, sonst nachfragen; nicht aus "leicht" raten); art kurz (steif, ziehend,
+      stechend, Muskelkater, verspannt). schmerz/schmerz_staerke (Freitext) nur noch für Altes.
+    kontext: feste Stichworte – sauna, reise, spaet_ins_bett, alkohol, koffein_spaet, viel_gegessen,
+      wenig_gegessen, carb_loading, stress_arbeit, stress_privat, kraft_ausgefallen, kraft_hart,
+      kungfu_ausgefallen, kungfu_hart, dehnen, massage, nass, laub, glatt, matsch, trail, laufband,
+      winterkleidung, neue_schuhe, neue_ausruestung, puls_handgelenk, puls_oberarm. Wetter nicht
+      eintragen (kommt automatisch); Untergrund (nass, laub, glatt) schon.
+    kh_g / fluessigkeit_ml: Gesamtmenge während der Einheit; g/h bzw. ml/h rechnet der Server aus der
+      Dauer. kh_g_pro_h / fluessigkeit_ml_pro_h nur, wenn Bruno selbst pro Stunde angibt.
+    stockwerke_geraet: Treppe im Studio, Stockwerke laut Gerät (zum Abgleich mit Garmins Schätzung).
+    text: alles Weitere. Mit entry_id wird ein Eintrag ergänzt bzw. geändert (nur angegebene Felder;
+    schmerzen und kontext werden dabei ersetzt, nicht ergänzt).
+    Die Antwort enthält 'nachfragen', wenn Pflichtangaben fehlen. Lob oder Kritik zu Berichten:
+    report_feedback statt Tagebuch."""
     return _call("log_diary", queries.log_diary, day=day, activity_id=activity_id, beine=beine,
                  energie=energie, infekt=infekt, schmerz=schmerz, schmerz_staerke=schmerz_staerke,
                  kh_g_pro_h=kh_g_pro_h, fluessigkeit_ml_pro_h=fluessigkeit_ml_pro_h, text=text,
-                 entry_id=entry_id, original=original, original_anhaengen=original_anhaengen)
+                 entry_id=entry_id, original=original, original_anhaengen=original_anhaengen,
+                 zeitpunkt=zeitpunkt, motivation=motivation, infekt_grad=infekt_grad, schmerzen=schmerzen,
+                 kontext=kontext, kh_g=kh_g, fluessigkeit_ml=fluessigkeit_ml,
+                 stockwerke_geraet=stockwerke_geraet)
 
 
 @server.tool(annotations=READ_ONLY)
@@ -449,6 +494,17 @@ def jahres_historie(jahr: int | None = None, bis_kw: int | None = None) -> dict:
     Dazu die Jahresbilanz bis bis_kw (Standard: letzte Woche mit Daten), das Vorjahr bis zur gleichen
     Kalenderwoche und das ganze Vorjahr. Berechnet nach jedem vollen Sync."""
     return _call("jahres_historie", history.year_report, jahr=jahr, bis_kw=bis_kw)
+
+
+@server.tool(annotations=WRITE)
+def report_feedback(text: str, report_id: int | None = None, activity_id: int | None = None,
+                    kind: str | None = None, day: str | None = None) -> dict:
+    """Brunos Rückmeldung zu einem Coach-Bericht speichern (was gefallen hat, was fehlt, was falsch
+    war, Wünsche zur Auswertung). Gehört nicht ins Tagebuch. Bericht über report_id, activity_id
+    (Trainingsbericht) oder kind + day (Standard heute, neuester Bericht). Mehrere Rückmeldungen
+    werden mit Zeitstempel angehängt; list_reports zeigt sie."""
+    return _call("report_feedback", queries.report_feedback, text=text, report_id=report_id,
+                 activity_id=activity_id, kind=kind, day=day)
 
 
 @server.tool(annotations=READ_ONLY)

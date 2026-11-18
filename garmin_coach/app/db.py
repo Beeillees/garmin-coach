@@ -129,6 +129,29 @@ CREATE TABLE IF NOT EXISTS diary (
     updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_diary_day ON diary(day);
+
+-- Wetter je Aktivität (nur draußen, mit Startkoordinaten): Garmin-Wetterstation zum Start plus
+-- Open-Meteo-Stundenwerte über die Dauer der Einheit. Abgeleitete Spalten in °C, km/h, mm.
+CREATE TABLE IF NOT EXISTS activity_weather (
+    activity_id     INTEGER PRIMARY KEY,
+    fetched_at      TEXT NOT NULL,
+    status          TEXT NOT NULL,          -- ok, teilweise, fehler
+    temp_c          REAL,                   -- Mittel über die Einheit
+    temp_min_c      REAL,
+    temp_max_c      REAL,
+    gefuehlt_c      REAL,
+    feuchte_pct     REAL,
+    wind_kmh        REAL,
+    boeen_kmh       REAL,
+    niederschlag_mm REAL,                   -- Summe während der Einheit
+    schnee_cm       REAL,
+    wetter          TEXT,                   -- Wetterlage als Text (z. B. 'Regen', 'bedeckt')
+    extrem          TEXT,                   -- JSON-Liste, z. B. ["Frost", "Regen"]
+    station         TEXT,                   -- Garmin-Wetterstation
+    garmin          TEXT,                   -- Rohdaten Garmin (JSON)
+    openmeteo       TEXT,                   -- Rohdaten Open-Meteo, nur die Stunden der Einheit (JSON)
+    error           TEXT
+);
 """
 
 # Spalten, die nach der ersten Version dazugekommen sind: (Tabelle, Spalte, Definition)
@@ -136,6 +159,16 @@ MIGRATIONS = [
     ("sync_log", "kind", "TEXT DEFAULT 'voll'"),
     ("coach_reports", "period", "TEXT"),       # 0.6: '2026-W44' bzw. '2026-10' für Wochen-/Monatsberichte
     ("diary", "original", "TEXT"),             # 0.8: Brunos Eingabe im Wortlaut (text = Zusammenfassung)
+    # 0.11: strukturiertes Tagebuch
+    ("diary", "zeitpunkt", "TEXT"),            # morgens, nach_einheit, tagsueber, abends
+    ("diary", "motivation", "INTEGER"),        # 1 null Bock ... 5 heiß drauf
+    ("diary", "infekt_grad", "INTEGER"),       # 0 keiner, 1 leicht, 2 deutlich, 3 krank
+    ("diary", "schmerzen", "TEXT"),            # JSON-Liste [{ort, seite, staerke, art}]
+    ("diary", "kontext", "TEXT"),              # JSON-Liste fester Stichworte (sauna, reise, nass, ...)
+    ("diary", "kh_g", "REAL"),                 # Kohlenhydrate gesamt während der Einheit
+    ("diary", "fluessigkeit_ml", "REAL"),      # getrunken gesamt während der Einheit
+    ("diary", "stockwerke_geraet", "INTEGER"), # Treppe: Stockwerke laut Gerät im Studio
+    ("coach_reports", "feedback", "TEXT"),     # 0.11: Brunos Rückmeldung zum Bericht
 ]
 
 # Indizes, die erst nach den Migrationen angelegt werden können
@@ -143,6 +176,23 @@ POST_MIGRATION = """
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_reports_period ON coach_reports(kind, period)
     WHERE period IS NOT NULL;
 """
+
+
+def zeitpunkt_aus(day: str, activity_id, created_at: str):
+    """Zeitpunkt eines Tagebucheintrags ableiten, wenn er nicht angegeben ist (sonst None)."""
+    if activity_id:
+        return "nach_einheit"
+    try:
+        local = datetime.fromisoformat(created_at).astimezone()
+    except (TypeError, ValueError):
+        return None
+    if local.date().isoformat() != (day or "")[:10]:
+        return None  # nachgetragen: Uhrzeit sagt nichts
+    if local.hour < 10:
+        return "morgens"
+    if local.hour >= 18:
+        return "abends"
+    return "tagsueber"
 
 
 def now_iso() -> str:
@@ -160,7 +210,18 @@ class Store:
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
         self.conn.executescript(POST_MIGRATION)
+        self._backfill_diary_zeitpunkt()
         self.conn.commit()
+
+    def _backfill_diary_zeitpunkt(self) -> None:
+        """Alte Tagebucheinträge (vor 0.11) bekommen einen Zeitpunkt: mit Einheit 'nach_einheit',
+        sonst aus der lokalen Uhrzeit des Eintrags, wenn er am selben Tag geschrieben wurde."""
+        rows = self.conn.execute(
+            "SELECT id, day, activity_id, created_at FROM diary WHERE zeitpunkt IS NULL").fetchall()
+        for rid, day, activity_id, created_at in rows:
+            zp = zeitpunkt_aus(day, activity_id, created_at)
+            if zp:
+                self.conn.execute("UPDATE diary SET zeitpunkt=? WHERE id=?", (zp, rid))
 
     # --- Tageswerte ---------------------------------------------------------
 

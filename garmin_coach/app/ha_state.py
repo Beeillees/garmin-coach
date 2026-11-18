@@ -291,6 +291,9 @@ def _diary_sensor(c) -> dict:
         "id": d.get("id"), "activity_id": d.get("activity_id"), "beine": d.get("beine"),
         "energie": d.get("energie"), "infekt": d.get("infekt"), "schmerz": d.get("schmerz"),
         "schmerz_staerke": d.get("schmerz_staerke"), "text": d.get("text"),
+        "zeitpunkt": d.get("zeitpunkt"), "motivation": d.get("motivation"), "infekt_grad": d.get("infekt_grad"),
+        "schmerzen": _loads(d.get("schmerzen")), "kontext": _loads(d.get("kontext")),
+        "kurz": queries._diary_short(d) if d else None,
     })
 
 

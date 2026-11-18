@@ -32,8 +32,9 @@ Die Daten werden nie gelöscht. Der Ordner liegt im Backup von Home Assistant, w
 | `notes` | Notizen zu Krankheit, Verletzung, Reise, Stress |
 | `coach_plan` | Trainingsplan als Text, jede Änderung eine neue Version |
 | `races` | Wettkämpfe mit Datum, Distanz, Priorität, Status |
-| `coach_reports` | Berichte des Coaches (Morgen, Training, Abend, Woche, Monat) mit Kurzfassung und Zeitraum |
-| `diary` | Trainingstagebuch: Beine, Energie, Infektzeichen, Schmerzen, Verpflegung, Zusammenfassung (`text`) und Brunos Eingabe im Wortlaut (`original`) |
+| `coach_reports` | Berichte des Coaches (Morgen, Training, Abend, Woche, Monat) mit Kurzfassung, Zeitraum und Brunos Rückmeldung (`feedback`) |
+| `diary` | Trainingstagebuch: Zeitpunkt (morgens, nach_einheit, tagsueber, abends), Beine, Energie, Motivation, Infekt (Grad 0–3 und Text), Schmerzen als JSON-Liste mit fester Körperstelle, Seite und Stärke, Kontext-Stichworte, Verpflegung (Gesamtmenge und pro Stunde), Treppen-Stockwerke laut Gerät, Zusammenfassung (`text`) und Brunos Eingabe im Wortlaut (`original`) |
+| `activity_weather` | Wetter je Einheit draußen: Temperatur (Mittel, Spanne, gefühlt), Luftfeuchte, Wind, Böen, Niederschlag, Schnee, Wetterlage, Extremwetter; aus Open-Meteo-Stundenwerten und der Garmin-Wetterstation, Rohdaten in `garmin`/`openmeteo` |
 | `mcp_log` | Protokoll der Abfragen von Claude (90 Tage) |
 | `sync_log` | Protokoll der Sync-Läufe (`kind`: voll oder schnell) |
 
@@ -88,7 +89,7 @@ ist normal.
 | `list_activities` | Einheiten mit Kernwerten, filterbar nach Zeitraum und Sportart |
 | `get_activity` | Alle Details einer Einheit inkl. Runden, Workout-Schritten, Bahnen, Sätzen, Zusatzwerten aus Garmin Connect |
 | `get_activity_timeseries` | Verläufe (z. B. Pulskurve) in wählbarer Auflösung |
-| `daily_metrics` | HRV, Ruhepuls, Schlaf, Hauttemperatur, Body Battery, Stress, Bereitschaft morgens/abends, Trainingsstatus, VO2max, Notizen |
+| `daily_metrics` | HRV, Ruhepuls, Schlaf (mit Nickerchen und Schlafbedarf), Hauttemperatur, Body Battery, Stress, Bereitschaft morgens/abends, Trainingsstatus, VO2max, Notizen |
 | `readiness_detail` | Alle Bereitschafts-Einträge eines Tages mit Anlass und Einheiten |
 | `weekly_summary` | Wochenumfänge pro Sportart-Gruppe mit Wochensumme und Notizen |
 | `garmin_profile` | Laktatschwelle, Wettkampfprognosen, Bestzeiten, Pulszonen, geplante Trainings |
@@ -96,7 +97,8 @@ ist normal.
 | `log_diary`, `list_diary`, `delete_diary` | Trainingstagebuch: eintragen bzw. ergänzen, anzeigen, löschen |
 | `get_plan`, `set_plan` | Trainingsplan lesen und speichern, mit Wochentag und Wettkämpfen |
 | `set_race`, `delete_race` | Wettkämpfe anlegen, ändern, löschen |
-| `pending_reports`, `save_report`, `list_reports` | Welche Einheiten und Rückblicke noch keinen Bericht haben; Berichte (auch Woche/Monat) vermerken und anzeigen |
+| `pending_reports`, `save_report`, `list_reports` | Welche Einheiten und Rückblicke noch keinen Bericht haben (dazu, ob das Morgen-Tagebuch fehlt); Berichte (auch Woche/Monat) vermerken und anzeigen |
+| `report_feedback` | Brunos Rückmeldung zu einem Bericht speichern |
 | `review_data` | Alle Daten für einen Wochen- oder Monatsrückblick in einem Abruf |
 | `sync_now` | Sofort-Sync (`schnell` oder `voll`) und auf das Ergebnis warten |
 | `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |

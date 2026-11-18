@@ -15,6 +15,7 @@ from garminconnect import Garmin
 import fit_store
 import ha_setup
 import history
+import weather
 import scheduler
 import workouts
 from db import Store
@@ -43,6 +44,9 @@ HISTORY_MARKER = Path("/data/history_snapshots_v2_done")
 # Mit 0.7.0 neu: Gewicht und Running Tolerance. Bestehende Installationen haben Backfill und
 # Verläufe schon erledigt, deshalb eine eigene Markierung für das einmalige Nachladen.
 HISTORY_V07_MARKER = Path("/data/history_v07_done")
+
+# Wetter-Historie: so viele Einheiten pro vollem Sync (2 volle Syncs am Tag, ~1.400 Einheiten draußen)
+WEATHER_BATCH = 250
 
 logging.basicConfig(
     level=logging.INFO,
@@ -201,6 +205,11 @@ def sync_worker(opts: dict) -> None:
                     fit_store.process_pending(store, DATA_DIR)
                 except Exception as e:
                     log.error("FIT-Auswertung fehlgeschlagen: %s", e)
+            if "fehler" not in result and (kind == "voll" or result.get("neue_fit")):
+                try:  # voller Sync lädt die Historie in Stücken nach, die Schnellprüfung nur Neues
+                    weather.sync(g, store, limit=WEATHER_BATCH if kind == "voll" else 5)
+                except Exception as e:
+                    log.error("Wetter fehlgeschlagen: %s", e)
             if "fehler" not in result and kind == "voll":
                 _rebuild_history()
             if "fehler" not in result and (kind == "voll" or result.get("neue_fit") or result.get("live")):
