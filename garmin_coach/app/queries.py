@@ -648,8 +648,11 @@ def list_activities(start_date=None, end_date=None, sport=None, limit=50, db_fil
         wx_cols = ("w.temp_c, w.gefuehlt_c, w.wind_kmh, w.boeen_kmh, w.niederschlag_mm, w.wetter, w.extrem"
                    if has_wx else "NULL AS temp_c")
         wx_join = "LEFT JOIN activity_weather w ON w.activity_id = a.activity_id" if has_wx else ""
-        sql = f"""SELECT {_LIST_COLS}, {wx_cols}
-            FROM activities a LEFT JOIN fit_sessions s ON s.activity_id = a.activity_id {wx_join}
+        has_rt = _table_exists(c, "activity_rating")
+        rt_cols = ", rt.bewertung AS rt_bewertung, rt.schluessel AS rt_schluessel" if has_rt else ""
+        rt_join = "LEFT JOIN activity_rating rt ON rt.activity_id = a.activity_id" if has_rt else ""
+        sql = f"""SELECT {_LIST_COLS}, {wx_cols}{rt_cols}
+            FROM activities a LEFT JOIN fit_sessions s ON s.activity_id = a.activity_id {wx_join} {rt_join}
             WHERE {' AND '.join(where)}
             ORDER BY a.start_local DESC LIMIT ?"""
         args.append(min(int(limit or 50), 500))
@@ -685,6 +688,8 @@ def list_activities(start_date=None, end_date=None, sport=None, limit=50, db_fil
             "zieltempo_treffer_pct": r["target_hit_pct"], "pulserholung_60s": r["hr_recovery_60s"],
             "bestzeit": True if js.get("pr") or js.get("isPR") else None,
             "wetter": _weather_short(r) if has_wx else None,
+            "bewertung": RATING_LABELS.get(r["rt_bewertung"]) if has_rt and r["rt_bewertung"] else None,
+            "schluessel": bool(r["rt_schluessel"]) if has_rt and r["rt_bewertung"] else None,
         }))
     return out
 
@@ -754,6 +759,8 @@ def get_activity(activity_id: int, db_file=None) -> dict:
         err = c.execute("SELECT error FROM fit_errors WHERE activity_id=?", (activity_id,)).fetchone()
         wx = c.execute("SELECT * FROM activity_weather WHERE activity_id=?", (activity_id,)).fetchone() \
             if _table_exists(c, "activity_weather") else None
+        rating = c.execute("SELECT * FROM activity_rating WHERE activity_id=?", (activity_id,)).fetchone() \
+            if _table_exists(c, "activity_rating") else None
         notes = _notes_between(c, a["start_local"][:10], a["start_local"][:10]) if a and a["start_local"] else []
         diary = [d for d in _diary_between(c, a["start_local"][:10], a["start_local"][:10])
                  if d["activity_id"] in (None, activity_id)] if a and a["start_local"] else []
@@ -796,6 +803,8 @@ def get_activity(activity_id: int, db_file=None) -> dict:
         out["garmin"] = _garmin_summary(js, group)
     if wx:
         out["wetter"] = _weather_out(wx)
+    if rating:
+        out["bewertung"] = _rating_out(rating)
     if notes:
         out["notizen"] = [_note_text(n) for n in notes]
     if diary:
@@ -1526,6 +1535,11 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
                               "ORDER BY id DESC LIMIT 1").fetchone()
         morning_diary = c.execute("SELECT beine, energie FROM diary WHERE day=? AND zeitpunkt='morgens'",
                                   (today.isoformat(),)).fetchall() if _table_exists(c, "diary") else []
+        unrated = c.execute(
+            "SELECT r.activity_id, r.day FROM coach_reports r LEFT JOIN activity_rating rt "
+            "ON rt.activity_id = r.activity_id WHERE r.kind='training' AND r.activity_id IS NOT NULL "
+            "AND r.day >= ? AND r.day >= ? AND rt.id IS NULL ORDER BY r.day",
+            (start, RATING_SINCE)).fetchall() if _table_exists(c, "activity_rating") else []
     offen = []
     for a in acts:
         group = sports.group(a["type_key"], a["fit_sport"])
@@ -1543,13 +1557,15 @@ def pending_reports(days: int = 2, db_file=None) -> dict:
                             or not any(r["energie"] is not None for r in morning_diary) else "ok"),
         "wochenbericht": {"zeitraum": periods["woche"][0], "fehlt": not periods["woche"][1]},
         "monatsbericht": {"zeitraum": periods["monat"][0], "fehlt": not periods["monat"][1]},
+        "trainingsberichte_ohne_bewertung": [dict(r) for r in unrated] or None,
         "letzter_sync": dict(last_sync) if last_sync else None,
         "hinweis": "Einheiten mit ausgewertet=false haben noch keine FIT-Auswertung; ggf. sync_now abwarten.",
     }
 
 
 def save_report(kind: str, summary: str, activity_id: int = None, day: str = None, period: str = None,
-                ersetzen: bool = False, db_file=None) -> dict:
+                ersetzen: bool = False, bewertung: str = None, schluessel: bool = None,
+                bewertung_grund: str = None, db_file=None) -> dict:
     kind = (kind or "").strip().lower()
     if kind not in REPORT_KINDS:
         raise ValueError(f"Art muss eine von {', '.join(REPORT_KINDS)} sein")
@@ -1562,33 +1578,49 @@ def save_report(kind: str, summary: str, activity_id: int = None, day: str = Non
         activity_id = None
     limit = 12000 if per else 4000
     text = (summary or "").strip()[:limit]
+    if bewertung is not None:
+        if kind != "training":
+            raise ValueError("bewertung gibt es nur für Trainingsberichte")
+        _rating_key(bewertung)  # vor dem Schreiben prüfen
     with connect_rw(db_file) as c:
-        if ersetzen:
-            # Vorhandenen Bericht überschreiben (z. B. neu formatiert): Zeitraum, Einheit oder Tag
-            if per:
-                row = c.execute("SELECT id FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone()
-            elif activity_id:
-                row = c.execute("SELECT id FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone()
-            else:
-                row = c.execute("SELECT id FROM coach_reports WHERE kind=? AND day=? ORDER BY id DESC LIMIT 1",
-                                (kind, d)).fetchone()
-            if row:
-                c.execute("UPDATE coach_reports SET summary=? WHERE id=?", (text, row["id"]))
-                return _clean({"id": row["id"], "art": kind, "tag": d, "activity_id": activity_id,
-                               "zeitraum": per, "ersetzt": True})
-        if per and c.execute("SELECT 1 FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone():
-            return {"hinweis": f"Für {per} gibt es schon einen {kind}-Bericht", "doppelt": True}
-        if activity_id:
-            row = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
-            if not row:
-                raise ValueError(f"Aktivität {activity_id} nicht gefunden")
-            d = (row["start_local"] or d)[:10]
-            if c.execute("SELECT 1 FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone():
-                return {"hinweis": f"Für Aktivität {activity_id} gibt es schon einen Bericht", "doppelt": True}
-        rid = c.execute("INSERT INTO coach_reports(kind, day, activity_id, created_at, summary, period) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (kind, d, int(activity_id) if activity_id else None, _now_utc(),
-                         text, per)).lastrowid
+        out = _save_report_rows(c, kind, text, activity_id, d, per, ersetzen)
+        if bewertung is not None:
+            act = c.execute("SELECT start_local FROM activities WHERE activity_id=?",
+                            (int(activity_id),)).fetchone()
+            rday = ((act["start_local"] if act else None) or d)[:10]
+            out["bewertung"] = _upsert_rating(
+                c, activity_id, rday, bewertung, schluessel,
+                (bewertung_grund or "").strip()[:500] or None, None, "coach")
+    return out
+
+
+def _save_report_rows(c, kind, text, activity_id, d, per, ersetzen) -> dict:
+    if ersetzen:
+        # Vorhandenen Bericht überschreiben (z. B. neu formatiert): Zeitraum, Einheit oder Tag
+        if per:
+            row = c.execute("SELECT id FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone()
+        elif activity_id:
+            row = c.execute("SELECT id FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone()
+        else:
+            row = c.execute("SELECT id FROM coach_reports WHERE kind=? AND day=? ORDER BY id DESC LIMIT 1",
+                            (kind, d)).fetchone()
+        if row:
+            c.execute("UPDATE coach_reports SET summary=? WHERE id=?", (text, row["id"]))
+            return _clean({"id": row["id"], "art": kind, "tag": d, "activity_id": activity_id,
+                           "zeitraum": per, "ersetzt": True})
+    if per and c.execute("SELECT 1 FROM coach_reports WHERE kind=? AND period=?", (kind, per)).fetchone():
+        return {"hinweis": f"Für {per} gibt es schon einen {kind}-Bericht", "doppelt": True}
+    if activity_id:
+        row = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
+        if not row:
+            raise ValueError(f"Aktivität {activity_id} nicht gefunden")
+        d = (row["start_local"] or d)[:10]
+        if c.execute("SELECT 1 FROM coach_reports WHERE activity_id=?", (int(activity_id),)).fetchone():
+            return {"hinweis": f"Für Aktivität {activity_id} gibt es schon einen Bericht", "doppelt": True}
+    rid = c.execute("INSERT INTO coach_reports(kind, day, activity_id, created_at, summary, period) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (kind, d, int(activity_id) if activity_id else None, _now_utc(),
+                     text, per)).lastrowid
     return _clean({"id": rid, "art": kind, "tag": d, "activity_id": activity_id, "zeitraum": per})
 
 
@@ -1635,6 +1667,134 @@ def report_feedback(text: str, report_id: int = None, activity_id: int = None, k
         c.execute("UPDATE coach_reports SET feedback=? WHERE id=?", (fb[:8000], row["id"]))
     return {"id": row["id"], "art": row["kind"], "tag": row["day"], "activity_id": row["activity_id"],
             "feedback": fb}
+
+
+# --- Bewertung je Einheit (Brunos 30/40/30-Regel) ------------------------------
+
+RATING_LABELS = {
+    "uebererfuellt": "⏫ übererfüllt",
+    "erfuellt": "✅ erfüllt",
+    "gekuerzt": "◐ gescheit gekürzt",
+    "verfehlt": "❌ verfehlt",
+}
+_RATING_ALIASES = {
+    "⏫": "uebererfuellt", "übererfüllt": "uebererfuellt", "uebererfuellt": "uebererfuellt", "ueber": "uebererfuellt",
+    "✅": "erfuellt", "erfüllt": "erfuellt", "erfuellt": "erfuellt",
+    "◐": "gekuerzt", "gekürzt": "gekuerzt", "gekuerzt": "gekuerzt", "gescheit gekürzt": "gekuerzt",
+    "abgebrochen": "gekuerzt", "teilweise": "gekuerzt",
+    "❌": "verfehlt", "verfehlt": "verfehlt", "ausgefallen": "verfehlt",
+}
+# Brunos Zielverhältnis über einen Monat: übererfüllt / erfüllt / nicht geschafft (gekürzt + verfehlt)
+RATING_TARGET = {"uebererfuellt": 30, "erfuellt": 40, "nicht_geschafft": 30}
+# Ab hier gibt es Vorgaben (Morgenberichte), gegen die bewertet werden kann; ältere Einheiten bleiben leer.
+RATING_SINCE = "2026-11-01"
+
+
+def _rating_key(v) -> str:
+    key = _RATING_ALIASES.get(str(v or "").strip().lower()) or _RATING_ALIASES.get(str(v or "").strip())
+    if not key:
+        raise ValueError("bewertung muss eine von uebererfuellt (⏫), erfuellt (✅), gekuerzt (◐), "
+                         "verfehlt (❌) sein")
+    return key
+
+
+def _rating_out(r) -> dict | None:
+    if not r:
+        return None
+    return _clean({"bewertung": RATING_LABELS.get(r["bewertung"], r["bewertung"]),
+                   "schluessel": bool(r["schluessel"]), "grund": r["grund"], "quelle": r["quelle"]})
+
+
+def _upsert_rating(c, activity_id, day: str, bewertung: str, schluessel=None, grund=None,
+                   einheit=None, quelle: str = "coach") -> dict:
+    key = _rating_key(bewertung)
+    now = _now_utc()
+    if activity_id:
+        row = c.execute("SELECT id, schluessel FROM activity_rating WHERE activity_id=?",
+                        (int(activity_id),)).fetchone()
+    else:
+        row = c.execute("SELECT id, schluessel FROM activity_rating WHERE activity_id IS NULL AND day=? "
+                        "AND einheit=?", (day, einheit)).fetchone()
+    sk = (1 if schluessel else 0) if schluessel is not None else (row["schluessel"] if row else 1)
+    if row:
+        c.execute("UPDATE activity_rating SET bewertung=?, schluessel=?, grund=COALESCE(?, grund), "
+                  "einheit=COALESCE(?, einheit), quelle=?, updated_at=? WHERE id=?",
+                  (key, sk, grund, einheit, quelle, now, row["id"]))
+        rid = row["id"]
+    else:
+        rid = c.execute("INSERT INTO activity_rating(activity_id, day, einheit, bewertung, schluessel, grund, "
+                        "quelle, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (int(activity_id) if activity_id else None, day, einheit, key, sk, grund, quelle,
+                         now, now)).lastrowid
+    return _clean({"id": rid, "activity_id": activity_id, "tag": day, "einheit": einheit,
+                   "bewertung": RATING_LABELS[key], "schluessel": bool(sk), "grund": grund, "quelle": quelle})
+
+
+def set_rating(bewertung: str = None, activity_id: int = None, day: str = None, einheit: str = None,
+               schluessel: bool = None, grund: str = None, quelle: str = "coach", loeschen: bool = False,
+               db_file=None) -> dict:
+    """Bewertung einer Einheit setzen, korrigieren oder löschen. Ohne activity_id: ausgefallene
+    Schlüsseleinheit an day mit Namen einheit."""
+    quelle = (quelle or "coach").strip().lower()
+    if quelle not in ("coach", "bruno", "nachtrag"):
+        raise ValueError("quelle muss coach, bruno oder nachtrag sein")
+    with connect_rw(db_file) as c:
+        if activity_id:
+            a = c.execute("SELECT start_local FROM activities WHERE activity_id=?", (int(activity_id),)).fetchone()
+            if not a:
+                raise ValueError(f"Aktivität {activity_id} nicht gefunden")
+            d = (a["start_local"] or "")[:10]
+        else:
+            if not day or not einheit:
+                raise ValueError("Ohne activity_id braucht es day und einheit (ausgefallene Einheit)")
+            d = date.fromisoformat(day[:10]).isoformat()
+        if loeschen:
+            if activity_id:
+                n = c.execute("DELETE FROM activity_rating WHERE activity_id=?", (int(activity_id),)).rowcount
+            else:
+                n = c.execute("DELETE FROM activity_rating WHERE activity_id IS NULL AND day=? AND einheit=?",
+                              (d, einheit)).rowcount
+            return {"geloescht": bool(n), "activity_id": activity_id, "tag": d, "einheit": einheit}
+        return _upsert_rating(c, activity_id, d, bewertung, schluessel, (grund or "").strip()[:500] or None,
+                              (einheit or "").strip()[:80] or None, quelle)
+
+
+def rating_quote(start: str, end: str, db_file=None, c=None) -> dict | None:
+    """Erfüllungsquote der Schlüsseleinheiten im Zeitraum gegen Brunos Ziel 30/40/30."""
+    def run(conn):
+        if not _table_exists(conn, "activity_rating"):
+            return None
+        rows = conn.execute("SELECT r.*, a.name FROM activity_rating r LEFT JOIN activities a USING(activity_id) "
+                            "WHERE r.day BETWEEN ? AND ? ORDER BY r.day, r.id", (start, end)).fetchall()
+        if not rows:
+            return None
+        key = [r for r in rows if r["schluessel"]]
+        n = len(key)
+        cnt = {k: sum(1 for r in key if r["bewertung"] == k) for k in RATING_LABELS}
+        ng = cnt["gekuerzt"] + cnt["verfehlt"]
+        pct = (lambda x: round(100 * x / n) if n else None)
+        warn = None
+        if n >= 8:
+            if ng * 3 > n:
+                warn = "Mehr als ein Drittel nicht geschafft – Plan oder Erholung prüfen"
+            elif ng * 10 < n:
+                warn = "Fast nichts gescheitert – Plan vermutlich zu leicht, steigern"
+        return _clean({
+            "von": start, "bis": end, "schluesseleinheiten": n,
+            "anzahl": {RATING_LABELS[k]: v for k, v in cnt.items()},
+            "prozent": {"uebererfuellt": pct(cnt["uebererfuellt"]), "erfuellt": pct(cnt["erfuellt"]),
+                        "nicht_geschafft": pct(ng)},
+            "ziel_prozent": RATING_TARGET,
+            "hinweis": warn,
+            "einheiten": [_clean({"tag": r["day"], "activity_id": r["activity_id"],
+                                  "einheit": r["einheit"] or r["name"],
+                                  "bewertung": RATING_LABELS.get(r["bewertung"], r["bewertung"]),
+                                  "schluessel": bool(r["schluessel"]), "grund": r["grund"]}) for r in rows],
+        })
+    if c is not None:
+        return run(c)
+    with connect(db_file) as conn:
+        return run(conn)
 
 
 # --- Wochen- und Monatsrückblick ----------------------------------------------
@@ -1756,6 +1916,10 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
             if _table_exists(c, "races") else []
     acts = sorted(acts, key=lambda a: a.get("start") or "")
     runs = [a for a in acts if a.get("sport_gruppe") == "laufen"]
+    quote = rating_quote(s, e, db_file=db_file)
+    quote4 = rating_quote((end - timedelta(days=27)).isoformat(), e, db_file=db_file)
+    if quote4:
+        quote4 = {k: v for k, v in quote4.items() if k != "einheiten"}
     key_sessions = []
     for a in acts:
         lang = (a.get("km") or 0) >= 25 or (a.get("minuten") or 0) >= 150
@@ -1768,7 +1932,7 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
                 "hoehenmeter": a.get("hoehenmeter"), "last": a.get("last"), "te_aerob": a.get("te_aerob"),
                 "te_anaerob": a.get("te_anaerob"), "rpe": a.get("rpe"), "gefuehl": a.get("gefuehl"),
                 "drift_pct": a.get("drift_pct"), "zieltempo_treffer_pct": a.get("zieltempo_treffer_pct"),
-                "wetter": a.get("wetter"),
+                "wetter": a.get("wetter"), "bewertung": a.get("bewertung"),
             }))
     per_day = []
     acts_by_day = {}
@@ -1805,6 +1969,8 @@ def review_data(kind: str = "woche", period: str = None, db_file=None) -> dict:
         }),
         "vertikal": _vertical(acts),
         "schluesseleinheiten": key_sessions,
+        "erfuellung": quote,
+        "erfuellung_4_wochen": quote4 if kind == "woche" else None,
         "erholung": _recovery(days),
         "erholung_vorperiode": _recovery(prev_days),
         "vorjahr": _clean({

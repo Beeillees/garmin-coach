@@ -1,0 +1,32 @@
+{
+  "hinweis": "Rückwirkende Bewertungen gegen die Vorgabe des Tages, aus den Coach-Berichten ab 01.11.2026 (mit Bruno am 25.11.2026 besprochen). Ältere Einheiten haben keine Vorgabe und bleiben bewusst unbewertet. Wird beim Start einmalig eingetragen, vorhandene Einträge werden nie überschrieben.",
+  "bewertungen": [
+    {"activity_id": 24924522629, "day": "2026-11-01", "einheit": "Long Run 22,2 km", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Morgenbericht: Long Run streichen (Readiness 6, Erkältungsreste) – trotzdem 22,2 km sauber in Z2"},
+    {"activity_id": 24926573804, "day": "2026-11-01", "einheit": "Hyrox", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Vorgabe streichen bzw. locker 60–80 % – 88 min, ~39 min Z4/Z5 an der Schwelle"},
+    {"activity_id": 24935678289, "day": "2026-11-02", "einheit": "Regenerationslauf", "bewertung": "uebererfuellt", "schluessel": false, "grund": "Vorgabe frei/Spaziergang – 5,9 km Z1, im Rahmen"},
+    {"activity_id": 24947809525, "day": "2026-11-03", "einheit": "Schwelle 4×10", "bewertung": "erfuellt", "schluessel": true, "grund": "Alle Blöcke im Ziel (4:10/4:16/4:16/4:17, HF 157–165); Morgenbericht riet wegen Readiness zum Tausch"},
+    {"activity_id": 24971469399, "day": "2026-11-05", "einheit": "Lockerer Lauf", "bewertung": "erfuellt", "schluessel": false, "grund": "7,2 km HF 132, etwas länger als 20–30 min, unkritisch"},
+    {"activity_id": 24989452360, "day": "2026-11-06", "einheit": "Hyrox", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Vorgabe Technik/locker – ~35 min Z4/Z5, Last 487"},
+    {"activity_id": 25004825757, "day": "2026-11-08", "einheit": "Long Run 21,8 km", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Vorgabe 16–18 km – 21,8 km, aerob sauber"},
+    {"activity_id": 25006510100, "day": "2026-11-08", "einheit": "Hyrox", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Vorgabe Technik 30–40 min HF < 150 – 72 min, ~46 min an der Schwelle"},
+    {"activity_id": 25015828753, "day": "2026-11-09", "einheit": "Regenerationslauf", "bewertung": "erfuellt", "schluessel": false, "grund": "Z1 sauber, HF Ø 126"},
+    {"activity_id": 25027484880, "day": "2026-11-10", "einheit": "Schwelle 4×10", "bewertung": "gekuerzt", "schluessel": true, "grund": "Alle 4 Blöcke, aber 4:14→4:23 statt 4:08–4:12; Tempo fiel in jedem Block"},
+    {"activity_id": 25050984616, "day": "2026-11-12", "einheit": "Bergsprints", "bewertung": "gekuerzt", "schluessel": true, "grund": "5 von 6 Runden, gescheit beendet (erste Einheit nach 3+ Monaten, Laub)"},
+    {"activity_id": 25061614778, "day": "2026-11-13", "einheit": "Regenerationslauf", "bewertung": "uebererfuellt", "schluessel": false, "grund": "Vorgabe Z1 – eher lockere Z2 (HF Ø 136), Graubereich"},
+    {"activity_id": 25072092069, "day": "2026-11-14", "einheit": "Treppe", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Vorgabe 45–60 min – 80 min, 1.076 Hm"},
+    {"activity_id": null, "day": "2026-11-14", "einheit": "Parkrun", "bewertung": "verfehlt", "schluessel": true, "grund": "Ausgelassen wegen Kälte (ohne Aufzeichnung)"},
+    {"activity_id": 25083162807, "day": "2026-11-15", "einheit": "Long Run 28,1 km", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Vorgabe 23–26 km – 28,1 km (+29 % zur Vorwoche)"},
+    {"activity_id": 25084960287, "day": "2026-11-15", "einheit": "Hyrox", "bewertung": "erfuellt", "schluessel": true, "grund": "Hyrox nach dem Long Run wie geplant"},
+    {"activity_id": 25093638105, "day": "2026-11-16", "einheit": "Regenerationslauf", "bewertung": "erfuellt", "schluessel": false, "grund": "Z1-Deckel gehalten, HF Ø 122"},
+    {"activity_id": 25104946394, "day": "2026-11-17", "einheit": "Schwelle 4×10", "bewertung": "gekuerzt", "schluessel": true, "grund": "3 von 4 Blöcken, gescheit abgebrochen (Beine limitiert nach 28-km-Wochenende)"},
+    {"activity_id": 25127829961, "day": "2026-11-19", "einheit": "Z2 22 km", "bewertung": "erfuellt", "schluessel": true, "grund": "Getauscht mit den Bergsprints (auf Sa); 100 min Z2, schnellste Standardrunde seit September"},
+    {"activity_id": 25132910699, "day": "2026-11-19", "einheit": "Schwimmen", "bewertung": "erfuellt", "schluessel": false, "grund": "Lockere Regeneration, Z1"},
+    {"activity_id": 25138135675, "day": "2026-11-20", "einheit": "Regenerationslauf", "bewertung": "erfuellt", "schluessel": false, "grund": "Statt Treppe (Alternative im Morgenbericht), HF Ø 129"},
+    {"activity_id": 25144456828, "day": "2026-11-20", "einheit": "Hyrox-Zirkel", "bewertung": "erfuellt", "schluessel": true, "grund": "Kraftausdauerreiz wie geplant"},
+    {"activity_id": 25148718442, "day": "2026-11-21", "einheit": "Bergsprints + Parkrun", "bewertung": "uebererfuellt", "schluessel": true, "grund": "Ungeplant: kurzes Partner-Format + Parkrun an der Schwelle; mehr Qualität, TGC-Spezifik (bergab, 650 m) fehlte"},
+    {"activity_id": 25159028953, "day": "2026-11-22", "einheit": "Long Run 24,5 km", "bewertung": "gekuerzt", "schluessel": true, "grund": "24,5 von 28 km, gescheit gekürzt (hintere Kette nach hartem Samstag)"},
+    {"activity_id": 25161633655, "day": "2026-11-22", "einheit": "Hyrox", "bewertung": "erfuellt", "schluessel": true, "grund": "Nach dem Long Run gut dosiert, Boxing technisch"},
+    {"activity_id": 25169344882, "day": "2026-11-23", "einheit": "Regenerationslauf", "bewertung": "erfuellt", "schluessel": false, "grund": "Z1 sauber, schneller als Vormontag"},
+    {"activity_id": 25180531143, "day": "2026-11-24", "einheit": "Schwelle 4×10", "bewertung": "erfuellt", "schluessel": true, "grund": "Alle 4 Blöcke knapp im Ziel (4:17/4:17/4:19/4:25), HF 3–6 Schläge tiefer als 10.11."}
+  ]
+}

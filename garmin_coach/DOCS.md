@@ -99,6 +99,7 @@ ist normal.
 | `set_race`, `delete_race` | Wettkämpfe anlegen, ändern, löschen |
 | `pending_reports`, `save_report`, `list_reports` | Welche Einheiten und Rückblicke noch keinen Bericht haben (dazu, ob das Morgen-Tagebuch fehlt); Berichte (auch Woche/Monat) vermerken und anzeigen |
 | `report_feedback` | Brunos Rückmeldung zu einem Bericht speichern |
+| `set_bewertung` | Bewertung einer Einheit gegen die Vorgabe setzen oder korrigieren (⏫/✅/◐/❌), auch für ausgefallene Einheiten |
 | `review_data` | Alle Daten für einen Wochen- oder Monatsrückblick in einem Abruf |
 | `sync_now` | Sofort-Sync (`schnell` oder `voll`) und auf das Ergebnis warten |
 | `describe_schema`, `query_sql` | Freie, schreibgeschützte SQL-Abfragen |
