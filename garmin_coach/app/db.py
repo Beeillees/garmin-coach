@@ -152,7 +152,31 @@ CREATE TABLE IF NOT EXISTS activity_weather (
     openmeteo       TEXT,                   -- Rohdaten Open-Meteo, nur die Stunden der Einheit (JSON)
     error           TEXT
 );
+
+-- Bewertung je Einheit gegen die Vorgabe des Tages (Brunos 30/40/30-Regel). Eigene Tabelle, damit der
+-- Sync sie nie überschreibt. Ausgefallene Schlüsseleinheiten ohne Aktivität: activity_id NULL, day +
+-- einheit gesetzt. Nur bewerten, wo es eine Vorgabe gab (ab 01.11.2026) – ältere Einheiten bleiben leer.
+CREATE TABLE IF NOT EXISTS activity_rating (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    activity_id INTEGER,                -- NULL = ausgefallene Einheit ohne Aufzeichnung
+    day         TEXT NOT NULL,          -- YYYY-MM-DD
+    einheit     TEXT,                   -- Kurzname, z. B. 'Schwelle 4×10', 'Parkrun'
+    bewertung   TEXT NOT NULL,          -- uebererfuellt, erfuellt, gekuerzt, verfehlt
+    schluessel  INTEGER NOT NULL DEFAULT 1,  -- 1 = Schlüsseleinheit (zählt für die Quote)
+    grund       TEXT,                   -- kurze Begründung gegen die Vorgabe
+    quelle      TEXT NOT NULL DEFAULT 'coach',  -- coach, bruno, nachtrag
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rating_activity ON activity_rating(activity_id)
+    WHERE activity_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rating_day_unit ON activity_rating(day, einheit)
+    WHERE activity_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_rating_day ON activity_rating(day);
 """
+
+# Rückwirkende Bewertungen (aus den Coach-Berichten ab 01.11.2026, mit Bruno besprochen am 25.11.2026).
+RATING_SEED_FILE = Path(__file__).with_name("bewertung_nachtrag.json")
 
 # Spalten, die nach der ersten Version dazugekommen sind: (Tabelle, Spalte, Definition)
 MIGRATIONS = [
@@ -211,7 +235,25 @@ class Store:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
         self.conn.executescript(POST_MIGRATION)
         self._backfill_diary_zeitpunkt()
+        self._seed_ratings()
         self.conn.commit()
+
+    def _seed_ratings(self) -> None:
+        """Rückwirkende Bewertungen einmalig eintragen. Vorhandene Einträge (z. B. von Bruno
+        korrigiert) werden nie überschrieben."""
+        if not RATING_SEED_FILE.exists():
+            return
+        try:
+            seed = json.loads(RATING_SEED_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        now = now_iso()
+        for r in seed.get("bewertungen", []):
+            self.conn.execute(
+                "INSERT OR IGNORE INTO activity_rating(activity_id, day, einheit, bewertung, schluessel, "
+                "grund, quelle, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (r.get("activity_id"), r["day"], r.get("einheit"), r["bewertung"],
+                 1 if r.get("schluessel", True) else 0, r.get("grund"), "nachtrag", now, now))
 
     def _backfill_diary_zeitpunkt(self) -> None:
         """Alte Tagebucheinträge (vor 0.11) bekommen einen Zeitpunkt: mit Einheit 'nach_einheit',

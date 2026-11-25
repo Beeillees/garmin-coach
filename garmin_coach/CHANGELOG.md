@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.0
+- **Bewertung je Einheit** gegen die Vorgabe des Tages (Brunos 30/40/30-Regel): neue Tabelle
+  `activity_rating` (getrennt von den Aktivitäten, der Sync überschreibt sie nie) mit `bewertung`
+  (uebererfuellt ⏫, erfuellt ✅, gekuerzt ◐ = gescheit gekürzt/abgebrochen, verfehlt ❌), `schluessel`
+  (zählt für die Quote), `grund` und `quelle` (coach, bruno, nachtrag). Ausgefallene Schlüsseleinheiten
+  ohne Aufzeichnung lassen sich mit Tag und Namen eintragen.
+- `save_report(kind=training)` hat neu `bewertung`, `schluessel` und `bewertung_grund`; neues Werkzeug
+  `set_bewertung` zum Korrigieren (z. B. wenn Bruno sagt „das war eigentlich ✅") und für ausgefallene
+  Einheiten.
+- `list_activities` und `get_activity` zeigen die Bewertung, `review_data` liefert `erfuellung` für den
+  Zeitraum (Anzahl und Prozent gegen das Ziel ~30/40/30, Hinweis bei mehr als einem Drittel nicht
+  geschafft oder fast nichts gescheitert) und bei der Woche zusätzlich `erfuellung_4_wochen`.
+  `pending_reports` meldet Trainingsberichte ohne Bewertung.
+- Rückwirkend bewertet: alle Einheiten mit Coach-Bericht ab 01.11.2026 (`bewertung_nachtrag.json`,
+  beim Start einmalig eingetragen, vorhandene Einträge bleiben unberührt). Ältere Einheiten bleiben
+  bewusst leer, weil es dort keine Vorgabe gab.
+
 ## 0.11.0
 - **Tagebuch strukturiert**, damit sich Verläufe auswerten lassen. Neue Felder in `diary`:
   `zeitpunkt` (morgens, nach_einheit, tagsueber, abends; ohne Angabe aus Einheit bzw. Uhrzeit

@@ -29,7 +29,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -94,6 +94,15 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   Die 'temperatur' aus FIT bzw. Garmin (temperatur_min/max) misst die Uhr am Handgelenk und ist
   körperwarm – nie als Außentemperatur verwenden. Bei Vergleichen (Puls im Winter, Bergsprints)
   das Wetter mit einbeziehen.
+- Bewertung je Einheit (Brunos 30/40/30-Regel): Jeder Trainingsbericht setzt per save_report(...,
+  bewertung=uebererfuellt|erfuellt|gekuerzt|verfehlt, schluessel=True/False) die Bewertung gegen die
+  Vorgabe des Tages (⏫ mehr/härter als vorgegeben, ✅ erfüllt, ◐ gescheit gekürzt/abgebrochen,
+  ❌ verfehlt/ausgefallen). Schlüsseleinheiten (Schwelle, Berg, Sa-Block, Long Run, Hyrox, Treppe)
+  zählen für die Quote, lockere Läufe mit schluessel=False. Ziel über einen Monat: ~30 % übererfüllt,
+  ~40 % erfüllt, ~30 % nicht geschafft. set_bewertung korrigiert (quelle=bruno, wenn Bruno es sagt) und
+  trägt ausgefallene Schlüsseleinheiten ohne Aufzeichnung ein (day + einheit). review_data liefert
+  'erfuellung' (Zeitraum) und bei der Woche 'erfuellung_4_wochen'. Bewertet wird erst ab 01.11.2026
+  (vorher keine Vorgaben); ältere Einheiten bleiben bewusst leer – nicht nachträglich schätzen.
 - Schlaf: nickerchen_min (Mittagsschlaf, von Garmin erkannt) und schlafbedarf_h stehen in daily_metrics.
 - Rückblicke: review_data(kind=woche|monat) liefert alles für einen Wochen-/Monatsrückblick in
   einem Abruf; danach save_report(kind=woche|monat, period=…). pending_reports zeigt, ob sie fehlen.
@@ -444,7 +453,8 @@ def pending_reports(days: int = 2) -> dict:
 
 @server.tool(annotations=WRITE)
 def save_report(kind: str, summary: str, activity_id: int | None = None, day: str | None = None,
-                period: str | None = None, ersetzen: bool = False) -> dict:
+                period: str | None = None, ersetzen: bool = False, bewertung: str | None = None,
+                schluessel: bool | None = None, bewertung_grund: str | None = None) -> dict:
     """Bericht vermerken. kind: morgen, training (braucht activity_id), abend, woche oder monat.
     period: '2026-W44' bzw. '2026-10' (Standard: der fällige Zeitraum wie in pending_reports).
     Pro Aktivität bzw. Zeitraum nur einmal; ersetzen=True überschreibt den vorhandenen Bericht
@@ -467,9 +477,29 @@ def save_report(kind: str, summary: str, activity_id: int | None = None, day: st
         Abschnitte als Stichpunkte: **Umfang & Last** (Kernzahlen gegen Vorperiode, knapp),
         **Erholung**, **Highlights**, **Probleme**, **Plan gegen Ist**, **Fokus nächste Woche bzw.
         nächster Monat**, **Beim nächsten Rückblick prüfen**. Ausführlich genug, dass der nächste
-        Rückblick darauf aufbaut (bis ca. 2000 Zeichen)."""
+        Rückblick darauf aufbaut (bis ca. 2000 Zeichen).
+
+    Nur bei kind=training: bewertung = uebererfuellt (⏫, mehr/härter als die Vorgabe), erfuellt (✅),
+    gekuerzt (◐, gescheit gekürzt oder abgebrochen) oder verfehlt (❌); schluessel = True für
+    Schlüsseleinheiten (Schwelle, Berg, Samstagsblock, Long Run, Hyrox, Treppe), False für lockere
+    Läufe/Regeneration; bewertung_grund = ein kurzer Satz gegen die Vorgabe. Immer mitgeben."""
     return _call("save_report", queries.save_report, kind=kind, summary=summary, activity_id=activity_id,
-                 day=day, period=period, ersetzen=ersetzen)
+                 day=day, period=period, ersetzen=ersetzen, bewertung=bewertung, schluessel=schluessel,
+                 bewertung_grund=bewertung_grund)
+
+
+@server.tool(annotations=WRITE)
+def set_bewertung(bewertung: str | None = None, activity_id: int | None = None, day: str | None = None,
+                  einheit: str | None = None, schluessel: bool | None = None, grund: str | None = None,
+                  quelle: str = "coach", loeschen: bool = False) -> dict:
+    """Bewertung einer Einheit gegen die Vorgabe setzen oder korrigieren (Brunos 30/40/30-Regel).
+    bewertung: uebererfuellt (⏫), erfuellt (✅), gekuerzt (◐ gescheit gekürzt/abgebrochen),
+    verfehlt (❌). Mit activity_id für eine aufgezeichnete Einheit; ohne activity_id mit day + einheit
+    für eine ausgefallene Schlüsseleinheit (z. B. Parkrun ausgelassen). schluessel: zählt für die Quote.
+    quelle: coach, oder bruno, wenn Bruno die Bewertung selbst nennt oder korrigiert. loeschen=True
+    entfernt die Bewertung. Nur Einheiten ab 01.11.2026 bewerten (vorher gab es keine Vorgaben)."""
+    return _call("set_bewertung", queries.set_rating, bewertung=bewertung, activity_id=activity_id, day=day,
+                 einheit=einheit, schluessel=schluessel, grund=grund, quelle=quelle, loeschen=loeschen)
 
 
 @server.tool(annotations=READ_ONLY)
