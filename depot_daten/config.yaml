@@ -1,0 +1,31 @@
+name: Depot-Daten
+version: "0.1.0"
+slug: depot_daten
+description: Holt täglich Kennzahlen, Kursziele und Termine zu Depot- und Beobachtungstiteln von Eulerpool nach Home Assistant.
+url: https://github.com/Beeillees/garmin-coach
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: manual
+homeassistant_api: true
+map:
+  - share:rw
+  - homeassistant_config:ro
+options:
+  token: ""
+  mode: probe
+  probe_titles:
+    - NVDA
+    - US67066G1040
+    - SAP
+    - DE0007164600
+    - RKLB
+  log_level: info
+schema:
+  token: password?
+  mode: list(probe)
+  probe_titles:
+    - str
+  log_level: list(debug|info|warning)
