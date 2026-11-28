@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.0
+- **StepMill-Stockwerke in Garmin Connect**: Brunos Connect-IQ-App „StepMill“ zählt Stockwerke über die
+  Uhrschritte und schreibt sie als Entwicklerfeld `stockwerke` in die FIT-Datei; Garmins eigenes Feld
+  bleibt 0. Nach jeder FIT-Auswertung trägt der Sync sie jetzt wie von Hand bearbeitet in Connect ein
+  (neues Modul `stepmill.py`, PUT auf die Aktivität mit dem vollständigen summaryDTO, danach Kontrolle
+  per zweitem Abruf). Nur Einheiten der App, nur wenn Connect 0 hat, erst ab 28.11.2026 13:00 (ältere
+  Aufzeichnungen haben doppelt gezählte Schritte). Protokoll in der neuen Tabelle `stepmill_floors`.
+- Neues Werkzeug `set_floors(activity_id, stockwerke)` zum gezielten Setzen oder Korrigieren.
+
 ## 0.12.0
 - **Bewertung je Einheit** gegen die Vorgabe des Tages (Brunos 30/40/30-Regel): neue Tabelle
   `activity_rating` (getrennt von den Aktivitäten, der Sync überschreibt sie nie) mit `bewertung`

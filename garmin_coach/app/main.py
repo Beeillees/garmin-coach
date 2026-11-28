@@ -13,6 +13,7 @@ from pathlib import Path
 from garminconnect import Garmin
 
 import fit_store
+import stepmill
 import ha_setup
 import history
 import weather
@@ -111,6 +112,7 @@ def sync_worker(opts: dict) -> None:
     """Sammler und FIT-Auswertung, läuft im Hintergrund-Thread."""
     store = Store(DB_FILE)  # eigene Verbindung, SQLite-Verbindungen sind an ihren Thread gebunden
     fit_store.init(store)
+    stepmill.init(store)
 
     # Bereits vorhandene, noch nicht ausgewertete FIT-Dateien zuerst abarbeiten
     fit_store.process_pending(store, DATA_DIR)
@@ -205,6 +207,11 @@ def sync_worker(opts: dict) -> None:
                     fit_store.process_pending(store, DATA_DIR)
                 except Exception as e:
                     log.error("FIT-Auswertung fehlgeschlagen: %s", e)
+                try:  # Stockwerke der StepMill-App in Connect nachtragen (nur fehlende)
+                    with workouts._client_lock:
+                        stepmill.sync_floors(g, store)
+                except Exception as e:
+                    log.error("StepMill-Stockwerke fehlgeschlagen: %s", e)
             if "fehler" not in result and (kind == "voll" or result.get("neue_fit")):
                 try:  # voller Sync lädt die Historie in Stücken nach, die Schnellprüfung nur Neues
                     weather.sync(g, store, limit=WEATHER_BATCH if kind == "voll" else 5)

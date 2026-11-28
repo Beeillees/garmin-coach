@@ -2,7 +2,8 @@
 
 Schreibend sind Notizen, Tagebuch, Trainingsplan, Wettkämpfe und Coach-Berichte. In Garmin Connect
 schreiben nur die Workout-Werkzeuge (create_workout, delete_workout), und nur Trainings mit der
-Markierung [garmin-coach] in der Beschreibung – alles andere in Garmin bleibt unangetastet. Jeder Werkzeugaufruf wird mit Dauer,
+Markierung [garmin-coach] in der Beschreibung, sowie set_floors (Stockwerke einer Treppen-Einheit) –
+alles andere in Garmin bleibt unangetastet. Jeder Werkzeugaufruf wird mit Dauer,
 Ergebnisgröße und Status protokolliert, im Add-on-Protokoll und in der Tabelle mcp_log.
 """
 
@@ -22,6 +23,7 @@ from mcp.types import ToolAnnotations
 import history
 import queries
 import scheduler
+import stepmill
 import workouts
 
 log = logging.getLogger("garmin_coach.mcp")
@@ -29,7 +31,7 @@ log = logging.getLogger("garmin_coach.mcp")
 PORT = 8099
 PATH = "/mcp"
 STATE_PATH = "/ha/state"
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                             open_world_hint=False)
@@ -116,6 +118,8 @@ Empfohlener Einstieg: data_overview, dann list_activities bzw. daily_metrics.
   in Garmin Connect an und plant sie auf ein Datum; die Uhr lädt sie beim nächsten Sync. Erst mit
   vorschau=True prüfen, wenn unsicher. list_workouts zeigt geplante Trainings (auch fremde Apps),
   delete_workout löscht nur Trainings des Coaches.
+- StepMill: Brunos Connect-IQ-App zählt Stockwerke über die Schritte (Entwicklerfeld `stockwerke`);
+  der Sync trägt sie automatisch als Garmin-Stockwerke ein. set_floors korrigiert eine Einheit.
 """
 
 server = MCPServer(name="garmin-coach", title="Garmin Coach", instructions=INSTRUCTIONS, version=VERSION)
@@ -582,6 +586,35 @@ def query_sql(sql: str) -> dict:
     Treppen-Einheit). Erst describe_schema aufrufen, wenn Spalten unklar sind.
     """
     return _call("query_sql", queries.run_sql, sql=sql)
+
+
+# --- StepMill ------------------------------------------------------------------
+
+class _Conn:
+    def __init__(self, conn):
+        self.conn = conn
+
+
+def _set_floors(activity_id: int, stockwerke: int | None = None) -> dict:
+    with workouts._client_lock:
+        conn = sqlite3.connect(str(queries.DB_FILE), timeout=30)
+        try:
+            store = _Conn(conn)
+            stepmill.init(store)
+            return stepmill.set_floors_manual(workouts._garmin(), store, activity_id, stockwerke)
+        finally:
+            conn.close()
+
+
+@server.tool(annotations=WRITE)
+async def set_floors(activity_id: int, stockwerke: int | None = None) -> dict:
+    """Stockwerke einer Treppen-Einheit in Garmin Connect eintragen (wie Brunos Bearbeiten von Hand).
+    Für Einheiten der StepMill-App passiert das nach jedem Sync automatisch (nur wenn Connect 0 hat,
+    ab 28.11.2026 13:00); dieses Werkzeug ist zum Korrigieren und überschreibt auch vorhandene Werte.
+    Ohne `stockwerke` gilt der Wert aus der FIT-Datei (Entwicklerfeld `stockwerke`).
+    Ergebnis: status ok | nicht_uebernommen, vorher, nachher. Nur nach Brunos Zustimmung."""
+    return await asyncio.to_thread(_call, "set_floors", _set_floors, activity_id=activity_id,
+                                   stockwerke=stockwerke)
 
 
 # --- Trainings auf die Uhr ------------------------------------------------------
